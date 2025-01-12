@@ -1,0 +1,87 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags (e.g. v0.1.0, v1.2.3, etc.)
+
+# Add permissions block at workflow level
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux build on ubuntu-latest
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: metgen
+          # macOS build on macos-latest
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            openssl_dir: /usr/local/opt/openssl@3
+            binary_name: metgen
+          # Windows build on windows-latest
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: metgen.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      # 1. Check out repository
+      - name: Check out repository
+        uses: actions/checkout@v3
+
+      # 2. Install system dependencies
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+          # Verify OpenSSL installation and set up environment
+          export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+          export OPENSSL_INCLUDE_DIR=/usr/include/openssl
+          echo "OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=/usr/include/openssl" >> $GITHUB_ENV
+
+      - name: Install macOS dependencies
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install openssl@3
+          echo 'export PKG_CONFIG_PATH="/usr/local/opt/openssl@3/lib/pkgconfig"' >> ~/.bash_profile
+          source ~/.bash_profile
+
+      # 3. Install Rust (stable)
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      # 4. Rust cache
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      # 5. Build (on each native OS)
+      - name: Build
+        run: cargo build --locked --release --target ${{ matrix.target }}
+        env:
+          OPENSSL_DIR: ${{ matrix.os == 'macos-latest' && matrix.openssl_dir || '' }}
+          PKG_CONFIG_PATH: ${{ matrix.os == 'macos-latest' && '/usr/local/opt/openssl@3/lib/pkgconfig' || '' }}
+
+      # 6. Prepare release binary
+      - name: Prepare release binary
+        run: |
+          cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} metgen-${{ matrix.target }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+      # 7. Upload release artifacts
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          files: metgen-${{ matrix.target }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

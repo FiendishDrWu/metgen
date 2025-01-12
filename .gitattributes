@@ -1,0 +1,7 @@
+# Exclude directories from archives
+.github export-ignore
+.github/* export-ignore
+target export-ignore
+target/* export-ignore
+
+# Exclude files from archives

@@ -1,6 +1,6 @@
-# MetGen - METAR Generator for Flight Simulators
+# METGen - METAR Generator for Flight Simulators
 
-MetGen is a Rust-based utility that generates synthetic METARs (Meteorological Terminal Air Reports) for home flight simulator use. It's specifically designed to provide accurately formatted METARs for airfields and airports that don't have real-world METAR reporting capabilities, or for other reasons have no METAR data available. From tiny barely-known dirt strips, to historical airport locations, or an empty stretch of beach at a scenic location, to an airport that doesn't exist, or even to the airports of the nation of Ukraine. You can create a METAR for anywhere in the world.
+METGen is a Rust-based utility that generates synthetic METARs (Meteorological Terminal Air Reports) for home flight simulator use. It's specifically designed to provide accurately formatted METARs for airfields and airports that don't have real-world METAR reporting capabilities, or for other reasons have no METAR data available. From tiny barely-known dirt strips, to historical airport locations, or an empty stretch of beach at a scenic location, to an airport that doesn't exist, or even to the airports of the nation of Ukraine. You can create a METAR for anywhere in the world.
 
 ## Features
 

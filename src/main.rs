@@ -24,8 +24,8 @@ mod metar_generator;
 mod one_call_metar;
 mod ui;
 
-use config::{load_config, update_config};
-use ui::{clear_screen, draw_banner, draw_menu_box, draw_section_header, draw_input_prompt, draw_output_box, draw_error_box, draw_success_box, read_single_char};
+use config::{load_config, update_config, get_user_airports, save_user_airport, delete_user_airport};
+use ui::{clear_screen, draw_banner, draw_menu_box, draw_section_header, draw_input_prompt, draw_output_box, draw_error_box, draw_success_box, read_single_char, select_airport_from_list};
 
 fn main() -> std::io::Result<()> {
     // Clear the screen and reset terminal state at startup
@@ -50,18 +50,20 @@ fn main() -> std::io::Result<()> {
         
         draw_menu_box("Main Menu", &[
             "1. Generate METAR",
-            "2. Update Configuration",
-            "3. Exit",
+            "2. Manage Saved Airports",
+            "3. Update Configuration",
+            "4. Exit",
         ])?;
 
-        draw_input_prompt("Enter your choice (1/2/3)")?;
-        std::thread::sleep(std::time::Duration::from_millis(100)); // Give time for any buffered input to clear
+        draw_input_prompt("Enter your choice (1/2/3/4)")?;
+        std::thread::sleep(std::time::Duration::from_millis(100));
         
         let menu_choice = match read_single_char() {
             Ok(c) => match c {
                 '1' => 1,
                 '2' => 2,
                 '3' => 3,
+                '4' => 4,
                 _ => {
                     draw_error_box("Invalid input. Please enter a valid number.")?;
                     std::thread::sleep(std::time::Duration::from_secs(2));
@@ -69,7 +71,6 @@ fn main() -> std::io::Result<()> {
                 }
             },
             Err(_) => {
-                // Enter was pressed or other error occurred
                 draw_error_box("Invalid input. Please enter a valid number.")?;
                 std::thread::sleep(std::time::Duration::from_secs(2));
                 continue;
@@ -78,11 +79,11 @@ fn main() -> std::io::Result<()> {
 
         match menu_choice {
             1 => generate_metar_menu(&config)?,
-            2 => {
+            2 => manage_saved_airports_menu(&config)?,
+            3 => {
                 if let Err(e) = update_config() {
                     draw_error_box(&format!("Failed to update configuration: {}", e))?;
                 }
-                // Reload the configuration and continue the loop
                 let (new_config_json, new_api_key, new_one_call_api_key) = load_config();
                 if !new_config_json.is_null() {
                     config = new_config_json;
@@ -91,7 +92,7 @@ fn main() -> std::io::Result<()> {
                 }
                 continue;
             }
-            3 => {
+            4 => {
                 draw_success_box("Thank you for using METGen! Goodbye.")?;
                 return Ok(());
             }
@@ -188,6 +189,115 @@ fn generate_metar_menu(config: &Value) -> std::io::Result<()> {
     }
 }
 
+fn manage_saved_airports_menu(config: &Value) -> std::io::Result<()> {
+    loop {
+        clear_screen()?;
+        draw_banner()?;
+        draw_section_header("Manage Saved Airports")?;
+        
+        let airports = get_user_airports();
+        
+        if airports.is_empty() {
+            draw_output_box("No saved airports found. Airports will be saved here when you choose to save them after generating a METAR using lat/lon or freeform search.")?;
+            draw_input_prompt("Press any key to return to main menu")?;
+            read_single_char()?;
+            return Ok(());
+        }
+
+        draw_menu_box("Options", &[
+            "1. Generate METAR for saved airport",
+            "2. Delete saved airport",
+            "3. Return to main menu",
+        ])?;
+
+        draw_input_prompt("Enter your choice (1/2/3)")?;
+        let choice = read_single_char()?;
+
+        match choice {
+            '1' => saved_airport_workflow(config)?,
+            '2' => {
+                if let Some(airport) = select_airport_from_list(&airports)? {
+                    delete_user_airport(&airport.icao)?;
+                    draw_success_box(&format!("Deleted airport {}", airport.icao))?;
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            },
+            '3' => return Ok(()),
+            _ => {
+                draw_error_box("Invalid choice")?;
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        }
+    }
+}
+
+fn saved_airport_workflow(config: &Value) -> std::io::Result<()> {
+    let airports = get_user_airports();
+    
+    if let Some(airport) = select_airport_from_list(&airports)? {
+        clear_screen()?;
+        draw_banner()?;
+        draw_section_header("Generate METAR for Saved Airport")?;
+        
+        draw_menu_box("Select API", &[
+            "1. Standard (uses metar_generator.rs + /data/2.5/weather)",
+            "2. One Call (uses one_call_metar.rs + /data/3.0/onecall)",
+        ])?;
+
+        draw_input_prompt("Enter (1) or (2)")?;
+        let api_choice = read_single_char()?;
+
+        match api_choice {
+            '1' => {
+                if let Some(metar) = metar_generator::generate_metar(
+                    &airport.icao,
+                    airport.latitude,
+                    airport.longitude,
+                    config["decrypted_api_key"].as_str().unwrap(),
+                    config["units"].as_str().unwrap(),
+                ) {
+                    draw_success_box(&format!("Generated METAR:\n{}", metar))?;
+                    // Wait for user acknowledgment before returning to main menu
+                    draw_input_prompt("Press any key to return to main menu")?;
+                    read_single_char()?;
+                    return Ok(());
+                } else {
+                    draw_error_box("Failed to generate METAR.")?;
+                }
+            },
+            '2' => {
+                // Fetch weather data first
+                if let Some(weather_data) = one_call_metar::fetch_weather_data(
+                    airport.latitude,
+                    airport.longitude,
+                    config["decrypted_one_call_api_key"].as_str().unwrap(),
+                ) {
+                    // Parse the weather data
+                    let parsed = one_call_metar::parse_weather_data(&weather_data);
+                    
+                    // Generate METAR
+                    let metar = one_call_metar::generate_metar(
+                        &airport.icao,
+                        &parsed,
+                        config["units"].as_str().unwrap(),
+                    );
+                    draw_success_box(&format!("Generated METAR:\n{}", metar))?;
+                    // Wait for user acknowledgment before returning to main menu
+                    draw_input_prompt("Press any key to return to main menu")?;
+                    read_single_char()?;
+                    return Ok(());
+                } else {
+                    draw_error_box("Failed to generate METAR.")?;
+                }
+            },
+            _ => {
+                draw_error_box("Invalid choice")?;
+            }
+        }
+    }
+    Ok(())
+}
+
 // -------------------------------------------
 // 2) Standard Approach Workflows
 //    (existing code that calls metar_generator)
@@ -206,7 +316,7 @@ fn icao_workflow_standard(config: &Value) -> std::io::Result<()> {
         draw_output_box(&format!("METAR found for {}: {}", icao, existing_metar))?;
         
         draw_input_prompt("Do you want to use this METAR? (y/n)")?;
-        std::thread::sleep(std::time::Duration::from_millis(100)); // Give time for any buffered input to clear
+        std::thread::sleep(std::time::Duration::from_millis(100));
         let use_existing = read_single_char()?;
         if use_existing.to_ascii_lowercase() == 'y' {
             draw_success_box(&format!("Using existing METAR:\n{}", existing_metar))?;
@@ -259,6 +369,14 @@ fn latlon_workflow_standard(config: &Value) -> std::io::Result<()> {
             config["units"].as_str().unwrap(),
         ) {
             draw_success_box(&format!("Generated METAR:\n{}", metar))?;
+            
+            // Ask if user wants to save this airport
+            draw_input_prompt("Would you like to save this airport for future use? (y/n)")?;
+            let save_choice = read_single_char()?;
+            if save_choice.to_ascii_lowercase() == 'y' {
+                save_user_airport(icao, lat, lon)?;
+                draw_success_box("Airport saved successfully!")?;
+            }
         } else {
             draw_error_box("Failed to generate METAR.")?;
         }
@@ -294,6 +412,14 @@ fn freeform_workflow_standard(config: &Value) -> std::io::Result<()> {
             config["units"].as_str().unwrap(),
         ) {
             draw_success_box(&format!("Generated METAR:\n{}", metar))?;
+            
+            // Ask if user wants to save this airport
+            draw_input_prompt("Would you like to save this airport for future use? (y/n)")?;
+            let save_choice = read_single_char()?;
+            if save_choice.to_ascii_lowercase() == 'y' {
+                save_user_airport(icao, lat, lon)?;
+                draw_success_box("Airport saved successfully!")?;
+            }
         } else {
             draw_error_box("Failed to generate METAR.")?;
         }
@@ -320,7 +446,7 @@ fn icao_workflow_onecall(config: &Value) -> std::io::Result<()> {
         draw_output_box(&format!("METAR found for {}: {}", icao, existing_metar))?;
         
         draw_input_prompt("Do you want to use this METAR? (y/n)")?;
-        std::thread::sleep(std::time::Duration::from_millis(100)); // Give time for any buffered input to clear
+        std::thread::sleep(std::time::Duration::from_millis(100));
         let use_existing = read_single_char()?;
         if use_existing.to_ascii_lowercase() == 'y' {
             draw_success_box(&format!("Using existing METAR:\n{}", existing_metar))?;
@@ -347,7 +473,7 @@ fn icao_workflow_onecall(config: &Value) -> std::io::Result<()> {
 }
 
 fn latlon_workflow_onecall(config: &Value) -> std::io::Result<()> {
-    draw_section_header("Latitude/Longitude Input (One Call API)")?;
+    draw_section_header("Latitude/Longitude Input")?;
     
     draw_input_prompt("Enter latitude (e.g., 37.7749)")?;
     let lat: f64 = Input::new()
@@ -365,54 +491,85 @@ fn latlon_workflow_onecall(config: &Value) -> std::io::Result<()> {
             .interact_text()
             .unwrap();
 
-        if let Some(data) = one_call_metar::fetch_weather_data(
+        // Fetch weather data first
+        if let Some(weather_data) = one_call_metar::fetch_weather_data(
             lat,
             lon,
             config["decrypted_one_call_api_key"].as_str().unwrap(),
         ) {
-            let parsed = one_call_metar::parse_weather_data(&data);
-            let metar = one_call_metar::generate_metar(&icao, &parsed, config["units"].as_str().unwrap());
-            draw_success_box(&format!("One Call METAR:\n{}", metar))?;
+            // Parse the weather data
+            let parsed = one_call_metar::parse_weather_data(&weather_data);
+            
+            // Generate METAR
+            let metar = one_call_metar::generate_metar(
+                &icao,
+                &parsed,
+                config["units"].as_str().unwrap(),
+            );
+            draw_success_box(&format!("Generated METAR:\n{}", metar))?;
+            
+            // Ask if user wants to save this airport
+            draw_input_prompt("Would you like to save this airport for future use? (y/n)")?;
+            let save_choice = read_single_char()?;
+            if save_choice.to_ascii_lowercase() == 'y' {
+                save_user_airport(icao, lat, lon)?;
+                draw_success_box("Airport saved successfully!")?;
+            }
         } else {
             draw_error_box("\nFailed to fetch data from One Call API.\nNote: The One Call API requires a separate subscription from the standard OpenWeather API.\nPlease check your API key and subscription status.")?;
         }
     } else {
-        draw_error_box("Invalid latitude/longitude entered. Please try again.")?;
+        draw_error_box("Invalid latitude/longitude values.")?;
     }
     Ok(())
 }
 
 fn freeform_workflow_onecall(config: &Value) -> std::io::Result<()> {
-    draw_section_header("Freeform Location Input (One Call API)")?;
+    draw_section_header("Freeform Location Input")?;
     
-    draw_input_prompt("Enter freeform location")?;
+    draw_input_prompt("Enter location (e.g., 'London, UK' or 'Tokyo Airport')")?;
     let location: String = Input::new()
         .interact_text()
         .unwrap();
 
-    if let Some((lat, lon)) =
-        input_handler::resolve_freeform_input(&location, config["decrypted_api_key"].as_str().unwrap())
-    {
-        draw_output_box(&format!("Resolved {} to coordinates: ({}, {})", location, lat, lon))?;
-        
+    if let Some((lat, lon)) = input_handler::resolve_freeform_input(
+        &location,
+        config["decrypted_api_key"].as_str().unwrap(),
+    ) {
         draw_input_prompt("Enter ICAO code for the generated METAR")?;
         let icao: String = Input::new()
             .interact_text()
             .unwrap();
 
-        if let Some(data) = one_call_metar::fetch_weather_data(
+        // Fetch weather data first
+        if let Some(weather_data) = one_call_metar::fetch_weather_data(
             lat,
             lon,
             config["decrypted_one_call_api_key"].as_str().unwrap(),
         ) {
-            let parsed = one_call_metar::parse_weather_data(&data);
-            let metar = one_call_metar::generate_metar(&icao, &parsed, config["units"].as_str().unwrap());
-            draw_success_box(&format!("One Call METAR:\n{}", metar))?;
+            // Parse the weather data
+            let parsed = one_call_metar::parse_weather_data(&weather_data);
+            
+            // Generate METAR
+            let metar = one_call_metar::generate_metar(
+                &icao,
+                &parsed,
+                config["units"].as_str().unwrap(),
+            );
+            draw_success_box(&format!("Generated METAR:\n{}", metar))?;
+            
+            // Ask if user wants to save this airport
+            draw_input_prompt("Would you like to save this airport for future use? (y/n)")?;
+            let save_choice = read_single_char()?;
+            if save_choice.to_ascii_lowercase() == 'y' {
+                save_user_airport(icao, lat, lon)?;
+                draw_success_box("Airport saved successfully!")?;
+            }
         } else {
             draw_error_box("\nFailed to fetch data from One Call API.\nNote: The One Call API requires a separate subscription from the standard OpenWeather API.\nPlease check your API key and subscription status.")?;
         }
     } else {
-        draw_error_box(&format!("Failed to resolve location: {}. Please try again.", location))?;
+        draw_error_box("Could not resolve location to coordinates.")?;
     }
     Ok(())
 }

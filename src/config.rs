@@ -21,8 +21,16 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use dialoguer::Input;
 use crate::ui::{draw_section_header, draw_input_prompt, draw_error_box, draw_success_box, read_single_char};
+use serde::{Serialize, Deserialize};
 
 const CONFIG_FILE: &str = "config.json";
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct UserAirport {
+    pub icao: String,
+    pub latitude: f64,
+    pub longitude: f64,
+}
 
 pub fn create_config() -> std::io::Result<()> {
     draw_section_header("METGen Configuration Setup")?;
@@ -162,4 +170,61 @@ pub fn update_config() -> std::io::Result<()> {
     fs::write(CONFIG_FILE, config.to_string())?;
     draw_success_box("Configuration updated successfully!")?;
     Ok(())
+}
+
+pub fn save_user_airport(icao: String, latitude: f64, longitude: f64) -> std::io::Result<()> {
+    let config_data = fs::read_to_string(CONFIG_FILE).expect("Failed to read configuration file");
+    let mut config: Value = serde_json::from_str(&config_data).expect("Failed to parse configuration");
+
+    // Initialize user_airports array if it doesn't exist
+    if config.get("user_airports").is_none() {
+        config["user_airports"] = json!([]);
+    }
+
+    // Add new airport
+    let new_airport = json!({
+        "icao": icao,
+        "latitude": latitude,
+        "longitude": longitude,
+    });
+
+    // Check if airport already exists
+    let user_airports = config["user_airports"].as_array_mut().unwrap();
+    if let Some(index) = user_airports.iter().position(|a| a["icao"] == new_airport["icao"]) {
+        user_airports[index] = new_airport;
+    } else {
+        user_airports.push(new_airport);
+    }
+
+    fs::write(CONFIG_FILE, config.to_string())?;
+    Ok(())
+}
+
+pub fn delete_user_airport(icao: &str) -> std::io::Result<()> {
+    let config_data = fs::read_to_string(CONFIG_FILE).expect("Failed to read configuration file");
+    let mut config: Value = serde_json::from_str(&config_data).expect("Failed to parse configuration");
+
+    if let Some(user_airports) = config["user_airports"].as_array_mut() {
+        if let Some(index) = user_airports.iter().position(|a| a["icao"].as_str().unwrap() == icao) {
+            user_airports.remove(index);
+            fs::write(CONFIG_FILE, config.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn get_user_airports() -> Vec<UserAirport> {
+    let config_data = fs::read_to_string(CONFIG_FILE).expect("Failed to read configuration file");
+    let config: Value = serde_json::from_str(&config_data).expect("Failed to parse configuration");
+
+    config["user_airports"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .map(|airport| UserAirport {
+            icao: airport["icao"].as_str().unwrap().to_string(),
+            latitude: airport["latitude"].as_f64().unwrap(),
+            longitude: airport["longitude"].as_f64().unwrap(),
+        })
+        .collect()
 }

@@ -18,14 +18,17 @@ use std::io::{self as io, Write};
 use crossterm::{
     execute,
     style::{Color, SetForegroundColor, SetBackgroundColor, SetAttribute, Attribute},
-    event::{read, Event, KeyCode},
+    event::{read, Event, KeyCode, KeyEvent},
     terminal::{enable_raw_mode, disable_raw_mode, Clear, ClearType},
     cursor,
 };
 use std::io::stdout;
+use crate::config::UserAirport;
 
+/// The current version of the application
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The main banner displayed at the top of the application
 const BANNER: &str = r#"
 ╔═══════════════════════════════════[ METGen ]══════════════════════════════════╗
 ║                                                                               ║
@@ -44,7 +47,8 @@ const BANNER_COLORS: [Color; 3] = [Color::Cyan, Color::Blue, Color::White];
 const MENU_COLORS: [Color; 2] = [Color::Yellow, Color::DarkYellow];
 const HEADER_COLORS: [Color; 2] = [Color::Magenta, Color::DarkMagenta];
 
-pub fn clear_screen() -> std::io::Result<()> {
+/// Clears the terminal screen and resets cursor position
+pub fn clear_screen() -> io::Result<()> {
     let mut stdout = stdout();
     execute!(
         stdout,
@@ -52,15 +56,14 @@ pub fn clear_screen() -> std::io::Result<()> {
         cursor::MoveTo(0, 0),
         cursor::Show
     )?;
-    stdout.flush()?;
-    Ok(())
+    stdout.flush()
 }
 
-pub fn draw_banner() -> std::io::Result<()> {
+/// Draws the application banner with color cycling effect
+pub fn draw_banner() -> io::Result<()> {
     let mut stdout = stdout();
     let banner_with_version = BANNER.replace("{VERSION_PLACEHOLDER}", VERSION);
     
-    // Apply color cycling effect to the banner
     for (i, line) in banner_with_version.lines().enumerate() {
         let color = BANNER_COLORS[i % BANNER_COLORS.len()];
         execute!(
@@ -76,8 +79,76 @@ pub fn draw_banner() -> std::io::Result<()> {
         stdout,
         SetAttribute(Attribute::Reset),
         SetBackgroundColor(Color::Reset)
-    )?;
-    Ok(())
+    )
+}
+
+/// Presents a list of airports and allows selection using arrow keys
+pub fn select_airport_from_list(airports: &[UserAirport]) -> io::Result<Option<UserAirport>> {
+    let mut stdout = stdout();
+    let mut selected = 0;
+
+    enable_raw_mode()?;
+    loop {
+        clear_screen()?;
+        draw_section_header("Select Saved Airport")?;
+
+        // Draw airport list with selection indicator
+        for (i, airport) in airports.iter().enumerate() {
+            execute!(
+                stdout,
+                SetForegroundColor(if i == selected { Color::Green } else { Color::White }),
+                SetAttribute(Attribute::Bold)
+            )?;
+            println!("{} {} (Lat: {:.4}, Lon: {:.4})",
+                if i == selected { "►" } else { " " },
+                airport.icao,
+                airport.latitude,
+                airport.longitude
+            );
+        }
+
+        // Draw instructions
+        execute!(
+            stdout,
+            SetForegroundColor(Color::DarkGrey),
+            SetAttribute(Attribute::Reset)
+        )?;
+        println!("\nUse ↑/↓ to navigate, Enter to select, Esc to cancel");
+        stdout.flush()?;
+
+        // Clear any buffered input before reading
+        while crossterm::event::poll(std::time::Duration::from_millis(0))? {
+            let _ = read()?;
+        }
+
+        // Handle input
+        match read()? {
+            Event::Key(KeyEvent { code: KeyCode::Up, .. }) => {
+                if selected > 0 {
+                    selected = selected.saturating_sub(1);
+                }
+            },
+            Event::Key(KeyEvent { code: KeyCode::Down, .. }) => {
+                if selected < airports.len() - 1 {
+                    selected += 1;
+                }
+            },
+            Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
+                disable_raw_mode()?;
+                return Ok(Some(airports[selected].clone()));
+            },
+            Event::Key(KeyEvent { code: KeyCode::Esc, .. }) => {
+                disable_raw_mode()?;
+                return Ok(None);
+            },
+            _ => {}
+        }
+
+        // Clear any remaining input after handling the keypress
+        while crossterm::event::poll(std::time::Duration::from_millis(0))? {
+            let _ = read()?;
+        }
+    }
 }
 
 pub fn draw_menu_box(title: &str, options: &[&str]) -> std::io::Result<()> {
@@ -193,7 +264,7 @@ pub fn draw_success_box(message: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn read_single_char() -> std::io::Result<char> {
+pub fn read_single_char() -> io::Result<char> {
     let mut stdout = stdout();
     stdout.flush()?;
     
@@ -204,7 +275,7 @@ pub fn read_single_char() -> std::io::Result<char> {
         let _ = read()?;
     }
     
-    let result: std::io::Result<char> = loop {
+    let result = loop {
         // Clear any input that might have accumulated during the loop
         while crossterm::event::poll(std::time::Duration::from_millis(0))? {
             let _ = read()?;
@@ -216,7 +287,8 @@ pub fn read_single_char() -> std::io::Result<char> {
                     break Ok(c);
                 },
                 KeyCode::Enter => {
-                    break Err(io::Error::new(io::ErrorKind::Other, "Enter pressed"));
+                    // Return a newline character for Enter key
+                    break Ok('\n');
                 },
                 _ => continue
             }

@@ -120,6 +120,7 @@ pub fn select_airport_from_list(airports: &[UserAirport]) -> io::Result<Option<U
         while crossterm::event::poll(std::time::Duration::from_millis(0))? {
             let _ = read()?;
         }
+        std::thread::sleep(std::time::Duration::from_millis(150));
 
         // Handle input
         match read()? {
@@ -127,26 +128,41 @@ pub fn select_airport_from_list(airports: &[UserAirport]) -> io::Result<Option<U
                 if selected > 0 {
                     selected = selected.saturating_sub(1);
                 }
+                // Clear any remaining input after the keypress
+                while crossterm::event::poll(std::time::Duration::from_millis(0))? {
+                    let _ = read()?;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
             },
             Event::Key(KeyEvent { code: KeyCode::Down, .. }) => {
                 if selected < airports.len() - 1 {
                     selected += 1;
                 }
+                // Clear any remaining input after the keypress
+                while crossterm::event::poll(std::time::Duration::from_millis(0))? {
+                    let _ = read()?;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
             },
             Event::Key(KeyEvent { code: KeyCode::Enter, .. }) => {
+                // Clear any buffered input before returning
+                while crossterm::event::poll(std::time::Duration::from_millis(0))? {
+                    let _ = read()?;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
                 disable_raw_mode()?;
                 return Ok(Some(airports[selected].clone()));
             },
             Event::Key(KeyEvent { code: KeyCode::Esc, .. }) => {
+                // Clear any buffered input before returning
+                while crossterm::event::poll(std::time::Duration::from_millis(0))? {
+                    let _ = read()?;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
                 disable_raw_mode()?;
                 return Ok(None);
             },
             _ => {}
-        }
-
-        // Clear any remaining input after handling the keypress
-        while crossterm::event::poll(std::time::Duration::from_millis(0))? {
-            let _ = read()?;
         }
     }
 }
@@ -270,24 +286,19 @@ pub fn read_single_char() -> io::Result<char> {
     
     enable_raw_mode()?;
     
-    // More aggressive input buffer clearing
-    while crossterm::event::poll(std::time::Duration::from_millis(10))? {
+    // Clear any buffered input before reading
+    while crossterm::event::poll(std::time::Duration::from_millis(0))? {
         let _ = read()?;
     }
+    std::thread::sleep(std::time::Duration::from_millis(200));
     
     let result = loop {
-        // Clear any input that might have accumulated during the loop
-        while crossterm::event::poll(std::time::Duration::from_millis(0))? {
-            let _ = read()?;
-        }
-        
         if let Event::Key(key_event) = read()? {
             match key_event.code {
                 KeyCode::Char(c) => {
                     break Ok(c);
                 },
-                KeyCode::Enter => {
-                    // Return a newline character for Enter key
+                KeyCode::Enter | KeyCode::Esc => {
                     break Ok('\n');
                 },
                 _ => continue
@@ -295,12 +306,20 @@ pub fn read_single_char() -> io::Result<char> {
         }
     };
     
-    // Clear any remaining input before returning
+    // Clear any remaining input before disabling raw mode
     while crossterm::event::poll(std::time::Duration::from_millis(0))? {
         let _ = read()?;
     }
+    std::thread::sleep(std::time::Duration::from_millis(200));
     
     disable_raw_mode()?;
+    
+    // Clear any input that might have come in during mode switch
+    while crossterm::event::poll(std::time::Duration::from_millis(0))? {
+        let _ = read()?;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    
     println!(); // Move to next line after character input
     result
 } 

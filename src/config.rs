@@ -15,216 +15,102 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::fs;
-use std::path::Path;
-use serde_json::{json, Value};
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
-use dialoguer::Input;
-use crate::ui::{draw_section_header, draw_input_prompt, draw_error_box, draw_success_box, read_single_char};
-use serde::{Serialize, Deserialize};
+use std::io::{self, Write};
+use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
+use serde_json::{self, Value};
+use base64;
 
-const CONFIG_FILE: &str = "config.json";
-
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserAirport {
     pub icao: String,
     pub latitude: f64,
     pub longitude: f64,
 }
 
-pub fn create_config() -> std::io::Result<()> {
-    draw_section_header("METGen Configuration Setup")?;
-
-    let api_key: String = loop {
-        draw_input_prompt("Enter your OpenWeather API key")?;
-        let input: String = Input::new()
-            .interact_text()
-            .unwrap();
-        if !input.is_empty() {
-            break input;
-        }
-        draw_error_box("OpenWeather API key is required.")?;
-    };
-
-    draw_input_prompt("Enter your One Call API key (or type 'same' to use the same API key, leave blank if not applicable)")?;
-    let one_call_api_key: String = Input::new()
-        .allow_empty(true)
-        .interact_text()
-        .unwrap();
-    let one_call_api_key = if one_call_api_key.to_lowercase() == "same" {
-        api_key.clone()
-    } else {
-        one_call_api_key
-    };
-
-    let units: String = loop {
-        draw_input_prompt("Enter preferred units (m=metric, i=imperial)")?;
-        std::thread::sleep(std::time::Duration::from_millis(100)); // Give time for any buffered input to clear
-        match read_single_char() {
-            Ok('m') | Ok('M') => {
-                println!("m");  // Echo the input
-                break "metric".to_string()
-            },
-            Ok('i') | Ok('I') => {
-                println!("i");  // Echo the input
-                break "imperial".to_string()
-            },
-            Ok(_) => {
-                draw_error_box("Invalid units. Please enter 'm' for metric or 'i' for imperial.")?;
-                continue;
-            },
-            Err(_) => continue  // Ignore errors and wait for valid input
-        }
-    };
-
-    let config = json!({
-        "api_key": STANDARD.encode(api_key.as_bytes()),
-        "one_call_api_key": STANDARD.encode(one_call_api_key.as_bytes()),
-        "units": units,
-    });
-
-    fs::write(CONFIG_FILE, config.to_string())?;
-    draw_success_box("Configuration created successfully!")?;
-    Ok(())
-}
+const CONFIG_FILE: &str = "config.json";
+const AIRPORTS_FILE: &str = "airports.json";
 
 pub fn load_config() -> (Value, String, String) {
-    if !Path::new(CONFIG_FILE).exists() {
-        create_config().expect("Failed to create configuration");
-    }
-
-    let config_data = fs::read_to_string(CONFIG_FILE).expect("Failed to read configuration file");
-    let config: Value = serde_json::from_str(&config_data).expect("Failed to parse configuration");
-
-    let api_key = String::from_utf8(
-        STANDARD
-            .decode(config["api_key"].as_str().unwrap())
-            .expect("Invalid base64 encoding")
-    ).expect("Invalid UTF-8 in API key");
-
-    let one_call_api_key = if let Some(encoded_key) = config["one_call_api_key"].as_str() {
-        if !encoded_key.is_empty() {
-            String::from_utf8(
-                STANDARD
-                    .decode(encoded_key)
-                    .expect("Invalid base64 encoding")
-            ).expect("Invalid UTF-8 in One Call API key")
-        } else {
-            String::new()
+    match fs::read_to_string(CONFIG_FILE) {
+        Ok(contents) => {
+            match serde_json::from_str(&contents) {
+                Ok(json) => {
+                    let config: Value = json;
+                    let api_key = config["api_key"].as_str().unwrap_or("").to_string();
+                    let one_call_api_key = config["one_call_api_key"].as_str().unwrap_or("").to_string();
+                    
+                    // Decrypt API keys
+                    let decrypted_api_key = decrypt_key(&api_key);
+                    let decrypted_one_call_api_key = decrypt_key(&one_call_api_key);
+                    
+                    (config, decrypted_api_key, decrypted_one_call_api_key)
+                }
+                Err(_) => (Value::Null, String::new(), String::new())
+            }
         }
-    } else {
-        String::new()
-    };
-
-    (config, api_key, one_call_api_key)
+        Err(_) => (Value::Null, String::new(), String::new())
+    }
 }
 
-pub fn update_config() -> std::io::Result<()> {
-    draw_section_header("Update Configuration")?;
+pub fn save_config(api_key: &str, one_call_api_key: &str, units: &str) -> io::Result<()> {
+    let encrypted_api_key = encrypt_key(api_key);
+    let encrypted_one_call_api_key = encrypt_key(one_call_api_key);
     
-    let (mut config, api_key, one_call_api_key) = load_config();
-
-    // OpenWeather API key
-    draw_input_prompt(&format!("OpenWeather API key [{}]: ", api_key))?;
-    let new_api_key: String = Input::new()
-        .allow_empty(true)
-        .interact_text()
-        .unwrap();
-    if !new_api_key.is_empty() {
-        config["api_key"] = json!(STANDARD.encode(new_api_key.as_bytes()));
-    }
-
-    // One Call API key
-    draw_input_prompt(&format!(
-        "One Call API key (type 'same' to reuse OpenWeather API key, 'blank' to remove) [{}]: ",
-        one_call_api_key
-    ))?;
-    let new_one_call_api_key: String = Input::new()
-        .allow_empty(true)
-        .interact_text()
-        .unwrap();
-
-    if !new_one_call_api_key.is_empty() {
-        config["one_call_api_key"] = json!(match new_one_call_api_key.to_lowercase().as_str() {
-            "same" => config["api_key"].as_str().unwrap_or("").to_string(),
-            "blank" => STANDARD.encode("".as_bytes()),
-            _ => STANDARD.encode(new_one_call_api_key.as_bytes())
-        });
-    }
-
-    // Units
-    draw_input_prompt(&format!("Preferred units (m=metric, i=imperial) [{}]: ", config["units"].as_str().unwrap_or("metric")))?;
-    std::thread::sleep(std::time::Duration::from_millis(100)); // Give time for any buffered input to clear
-    match read_single_char() {
-        Ok('m') | Ok('M') => {
-            println!("m");
-            config["units"] = json!("metric");
-        },
-        Ok('i') | Ok('I') => {
-            println!("i");
-            config["units"] = json!("imperial");
-        },
-        _ => {}  // Keep existing value
-    }
-
-    fs::write(CONFIG_FILE, config.to_string())?;
-    draw_success_box("Configuration updated successfully!")?;
-    Ok(())
-}
-
-pub fn save_user_airport(icao: String, latitude: f64, longitude: f64) -> std::io::Result<()> {
-    let config_data = fs::read_to_string(CONFIG_FILE).expect("Failed to read configuration file");
-    let mut config: Value = serde_json::from_str(&config_data).expect("Failed to parse configuration");
-
-    // Initialize user_airports array if it doesn't exist
-    if config.get("user_airports").is_none() {
-        config["user_airports"] = json!([]);
-    }
-
-    // Add new airport
-    let new_airport = json!({
-        "icao": icao,
-        "latitude": latitude,
-        "longitude": longitude,
+    let config = serde_json::json!({
+        "api_key": encrypted_api_key,
+        "one_call_api_key": encrypted_one_call_api_key,
+        "units": units
     });
-
-    // Check if airport already exists
-    let user_airports = config["user_airports"].as_array_mut().unwrap();
-    if let Some(index) = user_airports.iter().position(|a| a["icao"] == new_airport["icao"]) {
-        user_airports[index] = new_airport;
-    } else {
-        user_airports.push(new_airport);
-    }
-
-    fs::write(CONFIG_FILE, config.to_string())?;
-    Ok(())
-}
-
-pub fn delete_user_airport(icao: &str) -> std::io::Result<()> {
-    let config_data = fs::read_to_string(CONFIG_FILE).expect("Failed to read configuration file");
-    let mut config: Value = serde_json::from_str(&config_data).expect("Failed to parse configuration");
-
-    if let Some(user_airports) = config["user_airports"].as_array_mut() {
-        if let Some(index) = user_airports.iter().position(|a| a["icao"].as_str().unwrap() == icao) {
-            user_airports.remove(index);
-            fs::write(CONFIG_FILE, config.to_string())?;
-        }
-    }
+    
+    let config_str = serde_json::to_string_pretty(&config)?;
+    fs::write(CONFIG_FILE, config_str)?;
     Ok(())
 }
 
 pub fn get_user_airports() -> Vec<UserAirport> {
-    let config_data = fs::read_to_string(CONFIG_FILE).expect("Failed to read configuration file");
-    let config: Value = serde_json::from_str(&config_data).expect("Failed to parse configuration");
+    match fs::read_to_string(AIRPORTS_FILE) {
+        Ok(contents) => {
+            serde_json::from_str(&contents).unwrap_or_else(|_| Vec::new())
+        }
+        Err(_) => Vec::new()
+    }
+}
 
-    config["user_airports"]
-        .as_array()
-        .unwrap_or(&Vec::new())
-        .iter()
-        .map(|airport| UserAirport {
-            icao: airport["icao"].as_str().unwrap().to_string(),
-            latitude: airport["latitude"].as_f64().unwrap(),
-            longitude: airport["longitude"].as_f64().unwrap(),
-        })
-        .collect()
+pub fn save_user_airport(icao: String, lat: f64, lon: f64) -> io::Result<()> {
+    let mut airports = get_user_airports();
+    
+    // Check if airport already exists
+    if !airports.iter().any(|a| a.icao == icao) {
+        airports.push(UserAirport {
+            icao,
+            latitude: lat,
+            longitude: lon,
+        });
+        
+        let airports_json = serde_json::to_string_pretty(&airports)?;
+        fs::write(AIRPORTS_FILE, airports_json)?;
+    }
+    
+    Ok(())
+}
+
+pub fn delete_user_airport(icao: &str) -> io::Result<()> {
+    let mut airports = get_user_airports();
+    airports.retain(|a| a.icao != icao);
+    
+    let airports_json = serde_json::to_string_pretty(&airports)?;
+    fs::write(AIRPORTS_FILE, airports_json)?;
+    Ok(())
+}
+
+fn encrypt_key(key: &str) -> String {
+    base64::encode(key)
+}
+
+fn decrypt_key(encrypted: &str) -> String {
+    base64::decode(encrypted)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .unwrap_or_default()
 }

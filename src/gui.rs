@@ -9,9 +9,10 @@ use crate::input_handler;
 // Retro color scheme
 const CYAN_GLOW: Color32 = Color32::from_rgb(0, 255, 255);
 const MAGENTA_GLOW: Color32 = Color32::from_rgb(255, 0, 255);
-const BACKGROUND: Color32 = Color32::from_rgb(10, 10, 20);
-const TEXT_COLOR: Color32 = Color32::from_rgb(200, 200, 220);
+const BACKGROUND: Color32 = Color32::from_rgb(5, 5, 10);
+const TEXT_COLOR: Color32 = Color32::from_rgb(220, 220, 240);
 const ACCENT_COLOR: Color32 = Color32::from_rgb(128, 0, 255);
+const PANEL_BACKGROUND: Color32 = Color32::from_rgb(10, 10, 15);
 
 #[derive(Default)]
 pub struct MetGenApp {
@@ -56,10 +57,11 @@ impl MetGenApp {
         style.visuals.window_rounding = Rounding::default();
         style.visuals.window_fill = BACKGROUND;
         style.visuals.window_stroke = Stroke::new(1.0, CYAN_GLOW);
-        style.visuals.widgets.noninteractive.bg_fill = BACKGROUND;
-        style.visuals.widgets.inactive.bg_fill = BACKGROUND;
+        style.visuals.widgets.noninteractive.bg_fill = PANEL_BACKGROUND;
+        style.visuals.widgets.inactive.bg_fill = PANEL_BACKGROUND;
         style.visuals.widgets.hovered.bg_fill = ACCENT_COLOR;
         style.visuals.widgets.active.bg_fill = MAGENTA_GLOW;
+        style.visuals.panel_fill = PANEL_BACKGROUND;
         cc.egui_ctx.set_style(style);
         
         Self {

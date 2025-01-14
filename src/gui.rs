@@ -16,6 +16,8 @@ const PANEL_BACKGROUND: Color32 = Color32::from_rgb(10, 10, 15);
 const TAB_ACTIVE: Color32 = Color32::from_rgb(5, 5, 10);
 const TAB_INACTIVE: Color32 = Color32::from_rgb(5, 5, 10);
 const BORDER_GREY: Color32 = Color32::from_gray(64);
+const GENERATE_BUTTON_COLOR: Color32 = Color32::from_rgb(0, 255, 0);
+const GENERATE_BUTTON_TEXT: Color32 = Color32::BLACK;
 
 pub struct MetGenApp {
     input_icao: String,
@@ -197,7 +199,10 @@ impl eframe::App for MetGenApp {
                                                     self.success_message = Some("Using existing METAR from NOAA".to_string());
                                                 }
                                                 ui.add_space(20.0);
-                                                if ui.button("Generate Synthesized METAR").clicked() {
+                                                if ui.add(egui::Button::new(RichText::new("Generate Synthesized METAR")
+                                                    .color(GENERATE_BUTTON_TEXT))
+                                                    .fill(GENERATE_BUTTON_COLOR))
+                                                    .clicked() {
                                                     if let Some((lat, lon)) = input_handler::resolve_icao_to_lat_lon(&self.input_icao) {
                                                         self.generate_metar_with_coordinates(lat, lon);
                                                         self.existing_metar = None;
@@ -365,7 +370,10 @@ impl MetGenApp {
                             .desired_width(40.0);
                         ui.add(icao_edit);
                         ui.add_space(10.0);
-                        if ui.button("Generate").clicked() {
+                        if ui.add(egui::Button::new(RichText::new("Generate")
+                            .color(GENERATE_BUTTON_TEXT))
+                            .fill(GENERATE_BUTTON_COLOR))
+                            .clicked() {
                             self.generate_metar_from_icao();
                         }
                     });
@@ -397,7 +405,10 @@ impl MetGenApp {
                             ui.add(lon_edit);
                         });
                         ui.horizontal(|ui| {
-                            if ui.button("Generate").clicked() {
+                            if ui.add(egui::Button::new(RichText::new("Generate")
+                                .color(GENERATE_BUTTON_TEXT))
+                                .fill(GENERATE_BUTTON_COLOR))
+                                .clicked() {
                                 if self.input_icao.is_empty() {
                                     self.error_message = Some("Please enter an ICAO code for the location".to_string());
                                 } else {
@@ -429,7 +440,10 @@ impl MetGenApp {
                             ui.add(location_edit);
                         });
                         ui.horizontal(|ui| {
-                            if ui.button("Generate").clicked() {
+                            if ui.add(egui::Button::new(RichText::new("Generate")
+                                .color(GENERATE_BUTTON_TEXT))
+                                .fill(GENERATE_BUTTON_COLOR))
+                                .clicked() {
                                 if self.input_icao.is_empty() {
                                     self.error_message = Some("Please enter an ICAO code for the location".to_string());
                                 } else {
@@ -491,7 +505,10 @@ impl MetGenApp {
                                                 self.success_message = Some(format!("Deleted airport {}", airport.icao));
                                             }
                                         }
-                                        if ui.button("Generate").clicked() {
+                                        if ui.add(egui::Button::new(RichText::new("Generate")
+                                            .color(GENERATE_BUTTON_TEXT))
+                                            .fill(GENERATE_BUTTON_COLOR))
+                                            .clicked() {
                                             self.generate_metar_for_saved_airport(&airport);
                                         }
                                     });
@@ -741,7 +758,10 @@ impl MetGenApp {
                                             self.success_message = Some("Using existing METAR from NOAA".to_string());
                                         }
                                         ui.add_space(20.0);
-                                        if ui.button("Generate Synthesized METAR").clicked() {
+                                        if ui.add(egui::Button::new(RichText::new("Generate Synthesized METAR")
+                                            .color(GENERATE_BUTTON_TEXT))
+                                            .fill(GENERATE_BUTTON_COLOR))
+                                            .clicked() {
                                             if let Some((lat, lon)) = input_handler::resolve_icao_to_lat_lon(&self.input_icao) {
                                                 self.generate_metar_with_coordinates(lat, lon);
                                                 self.existing_metar = None;

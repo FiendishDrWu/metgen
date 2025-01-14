@@ -75,22 +75,79 @@ impl MetGenApp {
 impl eframe::App for MetGenApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Draw header
-            self.draw_header(ui);
+            let total_height = ui.available_height();
+            let total_width = ui.available_width();
             
-            // Draw tabs
-            ui.add_space(10.0);
-            ui.horizontal(|ui| {
-                self.draw_tab_bar(ui);
+            // Fixed proportions
+            let header_height = total_height * 0.15;  // 15% for header
+            let content_height = total_height * 0.52;  // 52% for main content (tabs area)
+            let output_height = total_height * 0.33;   // 33% for output section
+            let tab_width = total_width * 0.5;         // 50% of width for tab section
+
+            // Header
+            ui.vertical(|ui| {
+                ui.set_min_height(header_height);
+                self.draw_header(ui);
             });
-            
-            // Draw content based on selected tab
-            ui.add_space(20.0);
-            match self.selected_tab {
-                Tab::GenerateMetar => self.draw_generate_metar(ui),
-                Tab::SavedAirports => self.draw_saved_airports(ui),
-                Tab::Configuration => self.draw_configuration(ui),
-            }
+
+            // Main content area
+            ui.horizontal(|ui| {
+                // Left half - Tabs section
+                egui::Frame::none()
+                    .stroke(Stroke::new(1.0, CYAN_GLOW))
+                    .show(ui, |ui| {
+                        ui.set_min_width(tab_width);
+                        ui.set_max_width(tab_width);
+                        ui.set_min_height(content_height);
+                        ui.set_max_height(content_height);
+                        
+                        ui.vertical(|ui| {
+                            // Draw tabs
+                            ui.add_space(10.0);
+                            self.draw_tab_bar(ui);
+                            
+                            // Draw tab content
+                            ui.add_space(20.0);
+                            match self.selected_tab {
+                                Tab::GenerateMetar => self.draw_generate_metar(ui),
+                                Tab::SavedAirports => self.draw_saved_airports(ui),
+                                Tab::Configuration => self.draw_configuration(ui),
+                            }
+                        });
+                    });
+
+                // Right half - Reserved for future use
+                ui.vertical(|ui| {
+                    ui.set_min_width(tab_width);
+                    ui.set_max_width(tab_width);
+                    ui.set_min_height(content_height);
+                    ui.set_max_height(content_height);
+                    // This space is reserved for future use
+                });
+            });
+
+            // Lower section - Full width
+            ui.separator();
+            ui.vertical(|ui| {
+                ui.set_min_height(output_height);
+                ui.set_max_height(output_height);
+                
+                // Display Results
+                if !self.generated_metar.is_empty() {
+                    ui.group(|ui| {
+                        ui.heading(RichText::new("Generated METAR").color(MAGENTA_GLOW));
+                        ui.label(RichText::new(&self.generated_metar).color(TEXT_COLOR));
+                    });
+                }
+                
+                // Error/Success Messages
+                if let Some(error) = &self.error_message {
+                    ui.colored_label(Color32::RED, error);
+                }
+                if let Some(success) = &self.success_message {
+                    ui.colored_label(Color32::GREEN, success);
+                }
+            });
         });
     }
 }
@@ -156,78 +213,55 @@ impl MetGenApp {
     }
 
     fn draw_generate_metar(&mut self, ui: &mut egui::Ui) {
-        ui.vertical_centered(|ui| {
-            // API Selection
-            ui.group(|ui| {
-                ui.heading(RichText::new("Select API").color(CYAN_GLOW));
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.selected_api, ApiType::Standard, "Standard API");
-                    ui.selectable_value(&mut self.selected_api, ApiType::OneCall, "One Call API");
-                });
+        ui.vertical(|ui| {
+            // API Selection - just the buttons
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.selected_api, ApiType::Standard, "Standard API");
+                ui.selectable_value(&mut self.selected_api, ApiType::OneCall, "One Call API");
             });
             
-            ui.add_space(20.0);
+            ui.add_space(10.0);
             
-            // Input Methods
-            ui.group(|ui| {
-                ui.heading(RichText::new("ICAO Code").color(CYAN_GLOW));
-                ui.text_edit_singleline(&mut self.input_icao);
-                if ui.button("Generate from ICAO").clicked() {
+            // ICAO Input
+            ui.horizontal(|ui| {
+                ui.label("ICAO:");
+                let icao_edit = egui::TextEdit::singleline(&mut self.input_icao)
+                    .desired_width(40.0);
+                ui.add(icao_edit);
+                if ui.button("Generate").clicked() {
                     self.generate_metar_from_icao();
                 }
             });
             
-            ui.add_space(10.0);
+            ui.add_space(5.0);
             
-            ui.group(|ui| {
-                ui.heading(RichText::new("Latitude/Longitude").color(CYAN_GLOW));
-                ui.horizontal(|ui| {
-                    ui.label("ICAO:");
-                    ui.text_edit_singleline(&mut self.input_icao);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Lat:");
-                    ui.text_edit_singleline(&mut self.input_lat);
-                    ui.label("Lon:");
-                    ui.text_edit_singleline(&mut self.input_lon);
-                });
-                if ui.button("Generate from Coordinates").clicked() {
+            // Lat/Lon Input
+            ui.horizontal(|ui| {
+                ui.label("Lat:");
+                let lat_edit = egui::TextEdit::singleline(&mut self.input_lat)
+                    .desired_width(80.0);
+                ui.add(lat_edit);
+                ui.label("Lon:");
+                let lon_edit = egui::TextEdit::singleline(&mut self.input_lon)
+                    .desired_width(80.0);
+                ui.add(lon_edit);
+                if ui.button("Generate").clicked() {
                     self.generate_metar_from_coords();
                 }
             });
             
-            ui.add_space(10.0);
+            ui.add_space(5.0);
             
-            ui.group(|ui| {
-                ui.heading(RichText::new("Location Search").color(CYAN_GLOW));
-                ui.horizontal(|ui| {
-                    ui.label("ICAO:");
-                    ui.text_edit_singleline(&mut self.input_icao);
-                });
-                ui.text_edit_singleline(&mut self.input_location);
-                if ui.button("Generate from Location").clicked() {
+            // Location Search
+            ui.horizontal(|ui| {
+                ui.label("Location:");
+                let location_edit = egui::TextEdit::singleline(&mut self.input_location)
+                    .desired_width(120.0);
+                ui.add(location_edit);
+                if ui.button("Generate").clicked() {
                     self.generate_metar_from_location();
                 }
             });
-            
-            // Display Results
-            if !self.generated_metar.is_empty() {
-                ui.add_space(20.0);
-                ui.group(|ui| {
-                    ui.heading(RichText::new("Generated METAR").color(MAGENTA_GLOW));
-                    ui.label(RichText::new(&self.generated_metar).color(TEXT_COLOR));
-                });
-            }
-            
-            // Error/Success Messages
-            if let Some(error) = &self.error_message {
-                ui.add_space(10.0);
-                ui.colored_label(Color32::RED, error);
-            }
-            if let Some(success) = &self.success_message {
-                ui.add_space(10.0);
-                ui.colored_label(Color32::GREEN, success);
-            }
         });
     }
 

@@ -18,7 +18,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
-use serde_json::{self, Value};
+use serde_json::{self, Value, json};
 use base64;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +29,6 @@ pub struct UserAirport {
 }
 
 const CONFIG_FILE: &str = "config.json";
-const AIRPORTS_FILE: &str = "airports.json";
 
 pub fn load_config() -> (Value, String, String) {
     match fs::read_to_string(CONFIG_FILE) {
@@ -69,38 +68,92 @@ pub fn save_config(api_key: &str, one_call_api_key: &str, units: &str) -> io::Re
 }
 
 pub fn get_user_airports() -> Vec<UserAirport> {
-    match fs::read_to_string(AIRPORTS_FILE) {
-        Ok(contents) => {
-            serde_json::from_str(&contents).unwrap_or_else(|_| Vec::new())
+    if let Ok(contents) = fs::read_to_string(CONFIG_FILE) {
+        if let Ok(config) = serde_json::from_str::<Value>(&contents) {
+            if let Some(airports) = config["user_airports"].as_array() {
+                return airports
+                    .iter()
+                    .filter_map(|airport| {
+                        if let (Some(icao), Some(lat), Some(lon)) = (
+                            airport["icao"].as_str(),
+                            airport["latitude"].as_f64(),
+                            airport["longitude"].as_f64(),
+                        ) {
+                            Some(UserAirport {
+                                icao: icao.to_string(),
+                                latitude: lat,
+                                longitude: lon,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+            }
         }
-        Err(_) => Vec::new()
     }
+    Vec::new()
 }
 
 pub fn save_user_airport(icao: String, lat: f64, lon: f64) -> io::Result<()> {
-    let mut airports = get_user_airports();
-    
+    let mut config = if let Ok(contents) = fs::read_to_string(CONFIG_FILE) {
+        serde_json::from_str::<Value>(&contents).unwrap_or_else(|_| json!({
+            "api_key": "",
+            "one_call_api_key": "",
+            "units": "metric",
+            "user_airports": []
+        }))
+    } else {
+        json!({
+            "api_key": "",
+            "one_call_api_key": "",
+            "units": "metric",
+            "user_airports": []
+        })
+    };
+
+    // Initialize user_airports array if it doesn't exist
+    if !config.get("user_airports").is_some() {
+        config["user_airports"] = json!([]);
+    }
+
     // Check if airport already exists
-    if !airports.iter().any(|a| a.icao == icao) {
-        airports.push(UserAirport {
-            icao,
-            latitude: lat,
-            longitude: lon,
-        });
-        
-        let airports_json = serde_json::to_string_pretty(&airports)?;
-        fs::write(AIRPORTS_FILE, airports_json)?;
+    let should_add = if let Some(airports) = config["user_airports"].as_array() {
+        !airports.iter().any(|a| a["icao"].as_str() == Some(&icao))
+    } else {
+        true
+    };
+
+    if should_add {
+        if let Some(airports) = config["user_airports"].as_array_mut() {
+            airports.push(json!({
+                "icao": icao,
+                "latitude": lat,
+                "longitude": lon
+            }));
+            
+            let config_str = serde_json::to_string_pretty(&config)?;
+            fs::write(CONFIG_FILE, config_str)?;
+        }
     }
     
     Ok(())
 }
 
 pub fn delete_user_airport(icao: &str) -> io::Result<()> {
-    let mut airports = get_user_airports();
-    airports.retain(|a| a.icao != icao);
-    
-    let airports_json = serde_json::to_string_pretty(&airports)?;
-    fs::write(AIRPORTS_FILE, airports_json)?;
+    if let Ok(contents) = fs::read_to_string(CONFIG_FILE) {
+        if let Ok(mut config) = serde_json::from_str::<Value>(&contents) {
+            if let Some(airports) = config["user_airports"].as_array_mut() {
+                let len_before = airports.len();
+                airports.retain(|a| a["icao"].as_str() != Some(icao));
+                
+                if airports.len() != len_before {
+                    let config_str = serde_json::to_string_pretty(&config)?;
+                    fs::write(CONFIG_FILE, config_str)?;
+                }
+            }
+        }
+    }
     Ok(())
 }
 

@@ -139,6 +139,10 @@ impl MetGenApp {
             ui.group(|ui| {
                 ui.heading(RichText::new("Latitude/Longitude").color(CYAN_GLOW));
                 ui.horizontal(|ui| {
+                    ui.label("ICAO:");
+                    ui.text_edit_singleline(&mut self.input_icao);
+                });
+                ui.horizontal(|ui| {
                     ui.label("Lat:");
                     ui.text_edit_singleline(&mut self.input_lat);
                     ui.label("Lon:");
@@ -153,6 +157,10 @@ impl MetGenApp {
             
             ui.group(|ui| {
                 ui.heading(RichText::new("Location Search").color(CYAN_GLOW));
+                ui.horizontal(|ui| {
+                    ui.label("ICAO:");
+                    ui.text_edit_singleline(&mut self.input_icao);
+                });
                 ui.text_edit_singleline(&mut self.input_location);
                 if ui.button("Generate from Location").clicked() {
                     self.generate_metar_from_location();
@@ -165,6 +173,20 @@ impl MetGenApp {
                 ui.group(|ui| {
                     ui.heading(RichText::new("Generated METAR").color(MAGENTA_GLOW));
                     ui.label(RichText::new(&self.generated_metar).color(TEXT_COLOR));
+                    
+                    // Add save button if ICAO is provided
+                    if !self.input_icao.is_empty() {
+                        ui.add_space(10.0);
+                        if ui.button("Save Airport").clicked() {
+                            if let Some((lat, lon)) = self.get_current_coordinates() {
+                                if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
+                                    self.error_message = Some(format!("Failed to save airport: {}", e));
+                                } else {
+                                    self.success_message = Some(format!("Saved airport {}", self.input_icao));
+                                }
+                            }
+                        }
+                    }
                 });
             }
             
@@ -572,6 +594,16 @@ impl MetGenApp {
                 self.success_message = None;
             }
         });
+    }
+
+    // Helper function to get current coordinates based on the last successful METAR generation
+    fn get_current_coordinates(&self) -> Option<(f64, f64)> {
+        if let Ok(lat) = self.input_lat.parse::<f64>() {
+            if let Ok(lon) = self.input_lon.parse::<f64>() {
+                return Some((lat, lon));
+            }
+        }
+        None
     }
 }
 

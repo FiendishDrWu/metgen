@@ -13,10 +13,11 @@ const BACKGROUND: Color32 = Color32::from_rgb(5, 5, 10);
 const TEXT_COLOR: Color32 = Color32::from_rgb(220, 220, 240);
 const ACCENT_COLOR: Color32 = Color32::from_rgb(128, 0, 255);
 const PANEL_BACKGROUND: Color32 = Color32::from_rgb(10, 10, 15);
+const TAB_ACTIVE: Color32 = Color32::from_rgb(5, 5, 10);
+const TAB_INACTIVE: Color32 = Color32::from_rgb(5, 5, 10);
 
 #[derive(Default)]
 pub struct MetGenApp {
-    current_view: View,
     input_icao: String,
     input_lat: String,
     input_lon: String,
@@ -26,12 +27,12 @@ pub struct MetGenApp {
     success_message: Option<String>,
     config: Option<Value>,
     selected_api: ApiType,
+    selected_tab: Tab,
 }
 
-#[derive(Default, PartialEq)]
-enum View {
+#[derive(Default, PartialEq, Clone)]
+enum Tab {
     #[default]
-    Main,
     GenerateMetar,
     SavedAirports,
     Configuration,
@@ -69,49 +70,91 @@ impl MetGenApp {
             ..Default::default()
         }
     }
-    
+}
+
+impl eframe::App for MetGenApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Draw header
+            self.draw_header(ui);
+            
+            // Draw tabs
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                self.draw_tab_bar(ui);
+            });
+            
+            // Draw content based on selected tab
+            ui.add_space(20.0);
+            match self.selected_tab {
+                Tab::GenerateMetar => self.draw_generate_metar(ui),
+                Tab::SavedAirports => self.draw_saved_airports(ui),
+                Tab::Configuration => self.draw_configuration(ui),
+            }
+        });
+    }
+}
+
+impl MetGenApp {
     fn draw_header(&mut self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
             ui.add_space(10.0);
             ui.heading(RichText::new("METGen").color(CYAN_GLOW).size(32.0));
             ui.label(RichText::new("Synthesized METAR Generation").color(MAGENTA_GLOW).size(16.0));
-            ui.add_space(10.0);
-            
-            // Version info with glow effect
+            ui.add_space(5.0);
             ui.label(
                 RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                     .color(TEXT_COLOR)
                     .size(14.0)
             );
-            ui.add_space(20.0);
+            ui.add_space(10.0);
         });
     }
-    
-    fn draw_main_menu(&mut self, ui: &mut egui::Ui) {
-        let button_size = Vec2::new(200.0, 40.0);
-        
-        ui.vertical_centered(|ui| {
-            if ui.add_sized(button_size, egui::Button::new("Generate METAR")).clicked() {
-                self.current_view = View::GenerateMetar;
-            }
+
+    fn draw_tab_bar(&mut self, ui: &mut egui::Ui) {
+        let tab_height = 30.0;
+        let tab_padding = Vec2::new(20.0, 5.0);
+
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 1.0;  // Minimal spacing between tabs
             
-            ui.add_space(10.0);
-            if ui.add_sized(button_size, egui::Button::new("Manage Saved Airports")).clicked() {
-                self.current_view = View::SavedAirports;
-            }
-            
-            ui.add_space(10.0);
-            if ui.add_sized(button_size, egui::Button::new("Update Configuration")).clicked() {
-                self.current_view = View::Configuration;
-            }
-            
-            ui.add_space(10.0);
-            if ui.add_sized(button_size, egui::Button::new("Exit")).clicked() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            for tab in [Tab::GenerateMetar, Tab::SavedAirports, Tab::Configuration] {
+                let is_selected = self.selected_tab == tab;
+                let text = match tab {
+                    Tab::GenerateMetar => "Generate METAR",
+                    Tab::SavedAirports => "Saved Airports",
+                    Tab::Configuration => "Configuration",
+                };
+
+                let button = egui::Button::new(
+                    RichText::new(text)
+                        .color(if is_selected { MAGENTA_GLOW } else { CYAN_GLOW })
+                )
+                .fill(if is_selected { Color32::from_rgb(40, 40, 40) } else { Color32::BLACK });
+
+                // Create a custom frame for the button with our desired styling
+                let frame = egui::Frame::none()
+                    .fill(if is_selected { TAB_ACTIVE } else { TAB_INACTIVE })
+                    .inner_margin(tab_padding)
+                    .show(ui, |ui| {
+                        ui.add_sized(Vec2::new(0.0, tab_height), button)
+                    });
+
+                if frame.inner.clicked() {
+                    self.selected_tab = tab.clone();
+                }
             }
         });
+
+        // Draw separator line below tabs
+        ui.add_space(1.0);
+        let rect = ui.max_rect();
+        ui.painter().line_segment(
+            [rect.left_top(), rect.right_top()],
+            Stroke::new(1.0, CYAN_GLOW),
+        );
     }
-    
+
     fn draw_generate_metar(&mut self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
             // API Selection
@@ -173,20 +216,6 @@ impl MetGenApp {
                 ui.group(|ui| {
                     ui.heading(RichText::new("Generated METAR").color(MAGENTA_GLOW));
                     ui.label(RichText::new(&self.generated_metar).color(TEXT_COLOR));
-                    
-                    // Add save button if ICAO is provided
-                    if !self.input_icao.is_empty() {
-                        ui.add_space(10.0);
-                        if ui.button("Save Airport").clicked() {
-                            if let Some((lat, lon)) = self.get_current_coordinates() {
-                                if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
-                                    self.error_message = Some(format!("Failed to save airport: {}", e));
-                                } else {
-                                    self.success_message = Some(format!("Saved airport {}", self.input_icao));
-                                }
-                            }
-                        }
-                    }
                 });
             }
             
@@ -199,15 +228,9 @@ impl MetGenApp {
                 ui.add_space(10.0);
                 ui.colored_label(Color32::GREEN, success);
             }
-            
-            ui.add_space(20.0);
-            if ui.button("Back to Main Menu").clicked() {
-                self.current_view = View::Main;
-                self.clear_inputs();
-            }
         });
     }
-    
+
     fn draw_saved_airports(&mut self, ui: &mut egui::Ui) {
         let airports = get_user_airports();
         
@@ -240,24 +263,17 @@ impl MetGenApp {
                     }
                 });
             }
-            
-            ui.add_space(20.0);
-            if ui.button("Back to Main Menu").clicked() {
-                self.current_view = View::Main;
-            }
         });
     }
-    
-    fn clear_inputs(&mut self) {
-        self.input_icao.clear();
-        self.input_lat.clear();
-        self.input_lon.clear();
-        self.input_location.clear();
-        self.generated_metar.clear();
-        self.error_message = None;
-        self.success_message = None;
+
+    fn draw_configuration(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            ui.heading(RichText::new("Configuration").color(CYAN_GLOW));
+            // Add configuration UI elements here
+            ui.label("Configuration options coming soon...");
+        });
     }
-    
+
     fn generate_metar_from_icao(&mut self) {
         self.error_message = None;
         self.success_message = None;
@@ -276,48 +292,12 @@ impl MetGenApp {
 
         // If no existing METAR, generate one
         if let Some((lat, lon)) = input_handler::resolve_icao_to_lat_lon(&self.input_icao) {
-            match self.selected_api {
-                ApiType::Standard => {
-                    if let Some(config) = &self.config {
-                        if let Some(metar) = metar_generator::generate_metar(
-                            &self.input_icao,
-                            lat,
-                            lon,
-                            config["decrypted_api_key"].as_str().unwrap(),
-                            config["units"].as_str().unwrap(),
-                        ) {
-                            self.generated_metar = metar;
-                            self.success_message = Some("METAR generated successfully".to_string());
-                        } else {
-                            self.error_message = Some("Failed to generate METAR".to_string());
-                        }
-                    }
-                }
-                ApiType::OneCall => {
-                    if let Some(config) = &self.config {
-                        if let Some(weather_data) = one_call_metar::fetch_weather_data(
-                            lat,
-                            lon,
-                            config["decrypted_one_call_api_key"].as_str().unwrap(),
-                        ) {
-                            let parsed = one_call_metar::parse_weather_data(&weather_data);
-                            self.generated_metar = one_call_metar::generate_metar(
-                                &self.input_icao,
-                                &parsed,
-                                config["units"].as_str().unwrap(),
-                            );
-                            self.success_message = Some("METAR generated successfully".to_string());
-                        } else {
-                            self.error_message = Some("Failed to fetch weather data".to_string());
-                        }
-                    }
-                }
-            }
+            self.generate_metar_with_coordinates(lat, lon);
         } else {
             self.error_message = Some(format!("Could not resolve ICAO code: {}", self.input_icao));
         }
     }
-    
+
     fn generate_metar_from_coords(&mut self) {
         self.error_message = None;
         self.success_message = None;
@@ -344,62 +324,12 @@ impl MetGenApp {
         };
 
         if let Some((lat, lon)) = input_handler::validate_lat_lon(lat, lon) {
-            match self.selected_api {
-                ApiType::Standard => {
-                    if let Some(config) = &self.config {
-                        if let Some(metar) = metar_generator::generate_metar(
-                            &self.input_icao,
-                            lat,
-                            lon,
-                            config["decrypted_api_key"].as_str().unwrap(),
-                            config["units"].as_str().unwrap(),
-                        ) {
-                            self.generated_metar = metar;
-                            self.success_message = Some("METAR generated successfully".to_string());
-                            
-                            // Save the airport if it's not already saved
-                            if !self.input_icao.is_empty() {
-                                if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
-                                    self.error_message = Some(format!("Failed to save airport: {}", e));
-                                }
-                            }
-                        } else {
-                            self.error_message = Some("Failed to generate METAR".to_string());
-                        }
-                    }
-                }
-                ApiType::OneCall => {
-                    if let Some(config) = &self.config {
-                        if let Some(weather_data) = one_call_metar::fetch_weather_data(
-                            lat,
-                            lon,
-                            config["decrypted_one_call_api_key"].as_str().unwrap(),
-                        ) {
-                            let parsed = one_call_metar::parse_weather_data(&weather_data);
-                            self.generated_metar = one_call_metar::generate_metar(
-                                &self.input_icao,
-                                &parsed,
-                                config["units"].as_str().unwrap(),
-                            );
-                            self.success_message = Some("METAR generated successfully".to_string());
-                            
-                            // Save the airport if it's not already saved
-                            if !self.input_icao.is_empty() {
-                                if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
-                                    self.error_message = Some(format!("Failed to save airport: {}", e));
-                                }
-                            }
-                        } else {
-                            self.error_message = Some("Failed to fetch weather data".to_string());
-                        }
-                    }
-                }
-            }
+            self.generate_metar_with_coordinates(lat, lon);
         } else {
             self.error_message = Some("Invalid latitude/longitude values".to_string());
         }
     }
-    
+
     fn generate_metar_from_location(&mut self) {
         self.error_message = None;
         self.success_message = None;
@@ -414,70 +344,27 @@ impl MetGenApp {
                 &self.input_location,
                 config["decrypted_api_key"].as_str().unwrap(),
             ) {
-                match self.selected_api {
-                    ApiType::Standard => {
-                        if let Some(metar) = metar_generator::generate_metar(
-                            &self.input_icao,
-                            lat,
-                            lon,
-                            config["decrypted_api_key"].as_str().unwrap(),
-                            config["units"].as_str().unwrap(),
-                        ) {
-                            self.generated_metar = metar;
-                            self.success_message = Some("METAR generated successfully".to_string());
-                            
-                            // Save the airport if it's not already saved
-                            if !self.input_icao.is_empty() {
-                                if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
-                                    self.error_message = Some(format!("Failed to save airport: {}", e));
-                                }
-                            }
-                        } else {
-                            self.error_message = Some("Failed to generate METAR".to_string());
-                        }
-                    }
-                    ApiType::OneCall => {
-                        if let Some(weather_data) = one_call_metar::fetch_weather_data(
-                            lat,
-                            lon,
-                            config["decrypted_one_call_api_key"].as_str().unwrap(),
-                        ) {
-                            let parsed = one_call_metar::parse_weather_data(&weather_data);
-                            self.generated_metar = one_call_metar::generate_metar(
-                                &self.input_icao,
-                                &parsed,
-                                config["units"].as_str().unwrap(),
-                            );
-                            self.success_message = Some("METAR generated successfully".to_string());
-                            
-                            // Save the airport if it's not already saved
-                            if !self.input_icao.is_empty() {
-                                if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
-                                    self.error_message = Some(format!("Failed to save airport: {}", e));
-                                }
-                            }
-                        } else {
-                            self.error_message = Some("Failed to fetch weather data".to_string());
-                        }
-                    }
-                }
+                self.generate_metar_with_coordinates(lat, lon);
             } else {
                 self.error_message = Some(format!("Could not resolve location: {}", self.input_location));
             }
         }
     }
-    
+
     fn generate_metar_for_saved_airport(&mut self, airport: &UserAirport) {
         self.error_message = None;
         self.success_message = None;
+        self.generate_metar_with_coordinates(airport.latitude, airport.longitude);
+    }
 
+    fn generate_metar_with_coordinates(&mut self, lat: f64, lon: f64) {
         match self.selected_api {
             ApiType::Standard => {
                 if let Some(config) = &self.config {
                     if let Some(metar) = metar_generator::generate_metar(
-                        &airport.icao,
-                        airport.latitude,
-                        airport.longitude,
+                        &self.input_icao,
+                        lat,
+                        lon,
                         config["decrypted_api_key"].as_str().unwrap(),
                         config["units"].as_str().unwrap(),
                     ) {
@@ -491,13 +378,13 @@ impl MetGenApp {
             ApiType::OneCall => {
                 if let Some(config) = &self.config {
                     if let Some(weather_data) = one_call_metar::fetch_weather_data(
-                        airport.latitude,
-                        airport.longitude,
+                        lat,
+                        lon,
                         config["decrypted_one_call_api_key"].as_str().unwrap(),
                     ) {
                         let parsed = one_call_metar::parse_weather_data(&weather_data);
                         self.generated_metar = one_call_metar::generate_metar(
-                            &airport.icao,
+                            &self.input_icao,
                             &parsed,
                             config["units"].as_str().unwrap(),
                         );
@@ -509,115 +396,6 @@ impl MetGenApp {
             }
         }
     }
-
-    fn draw_configuration(&mut self, ui: &mut egui::Ui) {
-        ui.vertical_centered(|ui| {
-            ui.heading(RichText::new("Configuration").color(CYAN_GLOW));
-            ui.add_space(20.0);
-
-            let mut api_key = String::new();
-            let mut one_call_api_key = String::new();
-            let mut units = String::new();
-
-            if let Some(config) = &self.config {
-                api_key = config["decrypted_api_key"].as_str().unwrap_or("").to_string();
-                one_call_api_key = config["decrypted_one_call_api_key"].as_str().unwrap_or("").to_string();
-                units = config["units"].as_str().unwrap_or("metric").to_string();
-            }
-
-            ui.group(|ui| {
-                ui.heading(RichText::new("API Keys").color(MAGENTA_GLOW));
-                ui.add_space(10.0);
-
-                ui.horizontal(|ui| {
-                    ui.label("OpenWeather API Key:");
-                    if ui.text_edit_singleline(&mut api_key).changed() {
-                        if let Some(config) = &mut self.config {
-                            config["decrypted_api_key"] = serde_json::Value::String(api_key.clone());
-                        }
-                    }
-                });
-
-                ui.add_space(5.0);
-                ui.horizontal(|ui| {
-                    ui.label("One Call API Key:");
-                    if ui.text_edit_singleline(&mut one_call_api_key).changed() {
-                        if let Some(config) = &mut self.config {
-                            config["decrypted_one_call_api_key"] = serde_json::Value::String(one_call_api_key.clone());
-                        }
-                    }
-                });
-            });
-
-            ui.add_space(20.0);
-            ui.group(|ui| {
-                ui.heading(RichText::new("Units").color(MAGENTA_GLOW));
-                ui.add_space(10.0);
-
-                ui.horizontal(|ui| {
-                    if ui.radio_value(&mut units, "metric".to_string(), "Metric").clicked() {
-                        if let Some(config) = &mut self.config {
-                            config["units"] = serde_json::Value::String("metric".to_string());
-                        }
-                    }
-                    if ui.radio_value(&mut units, "imperial".to_string(), "Imperial").clicked() {
-                        if let Some(config) = &mut self.config {
-                            config["units"] = serde_json::Value::String("imperial".to_string());
-                        }
-                    }
-                });
-            });
-
-            ui.add_space(20.0);
-            if ui.button("Save Configuration").clicked() {
-                if let Err(e) = crate::config::save_config(&api_key, &one_call_api_key, &units) {
-                    self.error_message = Some(format!("Failed to save configuration: {}", e));
-                } else {
-                    self.success_message = Some("Configuration saved successfully".to_string());
-                }
-            }
-
-            // Error/Success Messages
-            if let Some(error) = &self.error_message {
-                ui.add_space(10.0);
-                ui.colored_label(Color32::RED, error);
-            }
-            if let Some(success) = &self.success_message {
-                ui.add_space(10.0);
-                ui.colored_label(Color32::GREEN, success);
-            }
-
-            ui.add_space(20.0);
-            if ui.button("Back to Main Menu").clicked() {
-                self.current_view = View::Main;
-                self.error_message = None;
-                self.success_message = None;
-            }
-        });
-    }
-
-    // Helper function to get current coordinates based on the last successful METAR generation
-    fn get_current_coordinates(&self) -> Option<(f64, f64)> {
-        if let Ok(lat) = self.input_lat.parse::<f64>() {
-            if let Ok(lon) = self.input_lon.parse::<f64>() {
-                return Some((lat, lon));
-            }
-        }
-        None
-    }
 }
 
-impl eframe::App for MetGenApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.draw_header(ui);
-            
-            match self.current_view {
-                View::Main => self.draw_main_menu(ui),
-                View::GenerateMetar => self.draw_generate_metar(ui),
-                View::SavedAirports => self.draw_saved_airports(ui),
-                View::Configuration => self.draw_configuration(ui),
-            }
-        });
-    }
-} 
+// ... existing code ... 

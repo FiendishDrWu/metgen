@@ -83,41 +83,117 @@ impl eframe::App for MetGenApp {
         let output_height = total_height * 0.33;  // 33% for output section
         let half_width = total_width * 0.5;       // 50% of width for each side
 
-        // Header
+        // Header panel
         egui::TopBottomPanel::top("header")
             .exact_height(header_height)
+            .frame(egui::Frame::none()
+                .inner_margin(egui::style::Margin::symmetric(10.0, 10.0))
+                .fill(BACKGROUND))
             .show(ctx, |ui| {
                 self.draw_header(ui);
             });
 
-        // Bottom output section
+        // Main content area (middle section)
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none()
+                .fill(BACKGROUND))
+            .show(ctx, |ui| {
+                ui.set_min_height(content_height);
+                ui.set_max_height(content_height);
+                
+                ui.horizontal(|ui| {
+                    // Left half - Tab content with proper frame
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(half_width, content_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            egui::Frame::none()
+                                .stroke(Stroke::new(1.0, CYAN_GLOW))
+                                .fill(TAB_ACTIVE)
+                                .inner_margin(egui::style::Margin::symmetric(10.0, 10.0))
+                                .show(ui, |ui| {
+                                    ui.set_min_width(half_width);
+                                    ui.set_max_width(half_width);
+                                    ui.set_min_height(content_height - 20.0); // Account for margins
+                                    ui.set_max_height(content_height - 20.0);
+                                    
+                                    ui.vertical(|ui| {
+                                        self.draw_tab_bar(ui);
+                                        match self.selected_tab {
+                                            Tab::GenerateMetar => self.draw_generate_metar(ui),
+                                            Tab::SavedAirports => self.draw_saved_airports(ui),
+                                            Tab::Configuration => self.draw_configuration(ui),
+                                        }
+                                    });
+                                });
+                        }
+                    );
+
+                    // Right half - Reserved for future use with proper frame
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(half_width, content_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            egui::Frame::none()
+                                .stroke(Stroke::new(1.0, CYAN_GLOW))
+                                .fill(PANEL_BACKGROUND)
+                                .inner_margin(egui::style::Margin::symmetric(10.0, 10.0))
+                                .show(ui, |ui| {
+                                    ui.set_min_width(half_width);
+                                    ui.set_max_width(half_width);
+                                    ui.set_min_height(content_height - 20.0); // Account for margins
+                                    ui.set_max_height(content_height - 20.0);
+                                    // Reserved for future use
+                                });
+                        }
+                    );
+                });
+            });
+
+        // Bottom output panel
         egui::TopBottomPanel::bottom("output")
             .exact_height(output_height)
+            .frame(egui::Frame::none()
+                .inner_margin(egui::style::Margin::symmetric(10.0, 10.0))
+                .fill(PANEL_BACKGROUND))
             .show(ctx, |ui| {
-                ui.add_space(25.0);  // Increased from 15.0 to 25.0
-                ui.separator();
-                ui.add_space(5.0);
+                // Paint border after frame is laid out
+                let rect = ui.max_rect();
+                ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, CYAN_GLOW));
                 
-                // Display Results
-                if !self.generated_metar.is_empty() {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
+                ui.vertical_centered(|ui| {
+                    // Display Results
+                    if !self.generated_metar.is_empty() {
+                        ui.group(|ui| {
                             ui.vertical(|ui| {
                                 ui.heading(RichText::new("Generated METAR").color(MAGENTA_GLOW));
-                                ui.add_space(5.0);
                                 ui.label(RichText::new(&self.generated_metar).color(TEXT_COLOR));
-                            });
-                            
-                            // Only show save button for custom location METARs
-                            if !self.input_icao.is_empty() && 
-                               (!self.input_lat.is_empty() || !self.input_location.is_empty()) {
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                                    if ui.button("Save Airport").clicked() {
-                                        if !self.input_lat.is_empty() {
-                                            // Save from lat/lon
-                                            if let Ok(lat) = self.input_lat.parse::<f64>() {
-                                                if let Ok(lon) = self.input_lon.parse::<f64>() {
-                                                    if let Some((lat, lon)) = input_handler::validate_lat_lon(lat, lon) {
+                                
+                                // Only show save button for custom location METARs
+                                if !self.input_icao.is_empty() && 
+                                   (!self.input_lat.is_empty() || !self.input_location.is_empty()) {
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                                        if ui.button("Save Airport").clicked() {
+                                            if !self.input_lat.is_empty() {
+                                                // Save from lat/lon logic...
+                                                if let Ok(lat) = self.input_lat.parse::<f64>() {
+                                                    if let Ok(lon) = self.input_lon.parse::<f64>() {
+                                                        if let Some((lat, lon)) = input_handler::validate_lat_lon(lat, lon) {
+                                                            if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
+                                                                self.error_message = Some(format!("Failed to save airport: {}", e));
+                                                            } else {
+                                                                self.success_message = Some(format!("Saved airport {}", self.input_icao));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                // Save from location search logic...
+                                                if let Some(config) = &self.config {
+                                                    if let Some((lat, lon)) = input_handler::resolve_freeform_input(
+                                                        &self.input_location,
+                                                        config["decrypted_api_key"].as_str().unwrap(),
+                                                    ) {
                                                         if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
                                                             self.error_message = Some(format!("Failed to save airport: {}", e));
                                                         } else {
@@ -126,106 +202,35 @@ impl eframe::App for MetGenApp {
                                                     }
                                                 }
                                             }
-                                        } else {
-                                            // Save from location search
-                                            if let Some(config) = &self.config {
-                                                if let Some((lat, lon)) = input_handler::resolve_freeform_input(
-                                                    &self.input_location,
-                                                    config["decrypted_api_key"].as_str().unwrap(),
-                                                ) {
-                                                    if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
-                                                        self.error_message = Some(format!("Failed to save airport: {}", e));
-                                                    } else {
-                                                        self.success_message = Some(format!("Saved airport {}", self.input_icao));
-                                                    }
-                                                }
-                                            }
                                         }
-                                    }
-                                });
-                            }
-                        });
-                    });
-                }
-                
-                // Error/Success Messages
-                if let Some(error) = &self.error_message {
-                    ui.colored_label(Color32::RED, error);
-                }
-                if let Some(success) = &self.success_message {
-                    ui.colored_label(Color32::GREEN, success);
-                }
-            });
-
-        // Main content area (middle section)
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Set exact height for middle section
-            ui.set_min_height(content_height);
-            ui.set_max_height(content_height);
-            
-            ui.horizontal(|ui| {
-                // Left half - Tab content
-                ui.allocate_ui_with_layout(
-                    Vec2::new(half_width, content_height),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        egui::Frame::none()
-                            .stroke(Stroke::new(1.0, CYAN_GLOW))
-                            .fill(TAB_ACTIVE)  // Use background color to ensure frame fills entire space
-                            .inner_margin(0.0)  // Remove default margin
-                            .outer_margin(0.0)  // Remove default margin
-                            .show(ui, |ui| {
-                                // Force the frame to use the entire allocated space
-                                ui.set_min_width(half_width);
-                                ui.set_max_width(half_width);
-                                ui.set_min_height(content_height - 10.0);  // Account for the space we added above
-                                ui.set_max_height(content_height - 10.0);
-                                
-                                ui.vertical(|ui| {
-                                    // Draw tabs
-                                    ui.add_space(10.0);
-                                    self.draw_tab_bar(ui);
-                                    
-                                    // Draw tab content
-                                    ui.add_space(10.0);  // Reduced from 20.0 to 10.0
-                                    match self.selected_tab {
-                                        Tab::GenerateMetar => self.draw_generate_metar(ui),
-                                        Tab::SavedAirports => self.draw_saved_airports(ui),
-                                        Tab::Configuration => self.draw_configuration(ui),
-                                    }
-                                });
+                                    });
+                                }
                             });
+                        });
                     }
-                );
-
-                // Right half - Reserved for future use
-                ui.allocate_ui_with_layout(
-                    Vec2::new(half_width, content_height),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        ui.set_min_width(half_width);
-                        ui.set_max_width(half_width);
-                        // This space is reserved for future use
+                    
+                    // Error/Success Messages
+                    if let Some(error) = &self.error_message {
+                        ui.colored_label(Color32::RED, error);
                     }
-                );
+                    if let Some(success) = &self.success_message {
+                        ui.colored_label(Color32::GREEN, success);
+                    }
+                });
             });
-        });
     }
 }
 
 impl MetGenApp {
     fn draw_header(&mut self, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
-            ui.add_space(10.0);
             ui.heading(RichText::new("METGen").color(CYAN_GLOW).size(32.0));
             ui.label(RichText::new("Synthesized METAR Generation").color(MAGENTA_GLOW).size(16.0));
-            ui.add_space(5.0);
             ui.label(
                 RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
                     .color(TEXT_COLOR)
                     .size(14.0)
             );
-            ui.add_space(10.0);
         });
     }
 
@@ -359,7 +364,8 @@ impl MetGenApp {
                             ui.label("Location:");
                             ui.add_space(10.0);
                             let location_edit = egui::TextEdit::singleline(&mut self.input_location)
-                                .desired_width(120.0);
+                                .desired_width(120.0)
+                                .min_size(Vec2::new(120.0, 0.0));
                             ui.add(location_edit);
                         });
                         ui.horizontal(|ui| {
@@ -379,73 +385,59 @@ impl MetGenApp {
 
     fn draw_saved_airports(&mut self, ui: &mut egui::Ui) {
         let airports = get_user_airports();
-        
+        let available_height = ui.available_height();
+
         ui.vertical(|ui| {
-            ui.add_space(5.0);  // Match generate METAR spacing
+            ui.set_min_height(available_height);
+            ui.set_max_height(available_height);
             
-            ui.vertical_centered(|ui| {
-                ui.heading(RichText::new("Saved Airports").color(CYAN_GLOW));
-            });
-            
-            ui.add_space(15.0);  // Match generate METAR spacing
-            
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.add_space(40.0);  // Left margin to match generate METAR
-                ui.vertical(|ui| {
-                    if airports.is_empty() {
-                        ui.label("No saved airports found");
-                    } else {
-                        egui::ScrollArea::vertical()
-                            .max_height(ui.available_height() - 40.0)  // Leave room for padding
-                            .show(ui, |ui| {
-                                for airport in airports {
-                                    ui.group(|ui| {
-                                        ui.set_width(300.0);  // Match generate METAR width
-                                        ui.horizontal(|ui| {
-                                            ui.label(RichText::new(&airport.icao).color(TEXT_COLOR));
-                                            ui.label(format!("(Lat: {:.4}, Lon: {:.4})", 
-                                                airport.latitude, airport.longitude));
-                                            
-                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                if ui.button("Delete").clicked() {
-                                                    if let Err(e) = delete_user_airport(&airport.icao) {
-                                                        self.error_message = Some(format!("Failed to delete airport: {}", e));
-                                                    } else {
-                                                        self.success_message = Some(format!("Deleted airport {}", airport.icao));
-                                                    }
-                                                }
-                                                if ui.button("Generate METAR").clicked() {
-                                                    self.generate_metar_for_saved_airport(&airport);
-                                                }
-                                            });
-                                        });
+            ui.heading(RichText::new("Saved Airports").color(CYAN_GLOW));
+            ui.add_space(15.0);
+
+            if airports.is_empty() {
+                ui.label("No saved airports found");
+            } else {
+                egui::ScrollArea::vertical()
+                    .max_height(available_height - 50.0)  // Account for header
+                    .show(ui, |ui| {
+                        for airport in airports {
+                            ui.group(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(&airport.icao).color(TEXT_COLOR));
+                                    ui.label(format!("(Lat: {:.4}, Lon: {:.4})", 
+                                        airport.latitude, airport.longitude));
+                                    
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        if ui.button("Delete").clicked() {
+                                            if let Err(e) = delete_user_airport(&airport.icao) {
+                                                self.error_message = Some(format!("Failed to delete airport: {}", e));
+                                            } else {
+                                                self.success_message = Some(format!("Deleted airport {}", airport.icao));
+                                            }
+                                        }
+                                        if ui.button("Generate METAR").clicked() {
+                                            self.generate_metar_for_saved_airport(&airport);
+                                        }
                                     });
-                                    ui.add_space(5.0);
-                                }
+                                });
                             });
-                    }
-                });
-            });
+                            ui.add_space(5.0);
+                        }
+                    });
+            }
         });
     }
 
     fn draw_configuration(&mut self, ui: &mut egui::Ui) {
+        let available_height = ui.available_height();
+
         ui.vertical(|ui| {
-            ui.add_space(5.0);  // Match generate METAR spacing
+            ui.set_min_height(available_height);
+            ui.set_max_height(available_height);
             
-            ui.vertical_centered(|ui| {
-                ui.heading(RichText::new("Configuration").color(CYAN_GLOW));
-            });
-            
-            ui.add_space(15.0);  // Match generate METAR spacing
-            
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.add_space(40.0);  // Left margin to match generate METAR
-                ui.vertical(|ui| {
-                    ui.set_width(300.0);  // Match generate METAR width
-                    ui.label("Configuration options coming soon...");
-                });
-            });
+            ui.heading(RichText::new("Configuration").color(CYAN_GLOW));
+            ui.add_space(15.0);
+            ui.label("Configuration options coming soon...");
         });
     }
 
@@ -639,6 +631,65 @@ impl MetGenApp {
                 self.error_message = Some(format!("Could not resolve location: {}", self.input_location));
             }
         }
+    }
+
+    fn draw_output(&mut self, ui: &mut egui::Ui) {
+        // Paint the panel border
+        let rect = ui.max_rect();
+        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, CYAN_GLOW));
+        
+        ui.vertical_centered(|ui| {
+            // Display Results
+            if !self.generated_metar.is_empty() {
+                ui.heading(RichText::new("Generated METAR").color(MAGENTA_GLOW));
+                ui.label(RichText::new(&self.generated_metar).color(TEXT_COLOR));
+                
+                // Only show save button for custom location METARs
+                if !self.input_icao.is_empty() && 
+                   (!self.input_lat.is_empty() || !self.input_location.is_empty()) {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                        if ui.button("Save Airport").clicked() {
+                            if !self.input_lat.is_empty() {
+                                // Save from lat/lon logic...
+                                if let Ok(lat) = self.input_lat.parse::<f64>() {
+                                    if let Ok(lon) = self.input_lon.parse::<f64>() {
+                                        if let Some((lat, lon)) = input_handler::validate_lat_lon(lat, lon) {
+                                            if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
+                                                self.error_message = Some(format!("Failed to save airport: {}", e));
+                                            } else {
+                                                self.success_message = Some(format!("Saved airport {}", self.input_icao));
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Save from location search logic...
+                                if let Some(config) = &self.config {
+                                    if let Some((lat, lon)) = input_handler::resolve_freeform_input(
+                                        &self.input_location,
+                                        config["decrypted_api_key"].as_str().unwrap(),
+                                    ) {
+                                        if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
+                                            self.error_message = Some(format!("Failed to save airport: {}", e));
+                                        } else {
+                                            self.success_message = Some(format!("Saved airport {}", self.input_icao));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+            
+            // Error/Success Messages
+            if let Some(error) = &self.error_message {
+                ui.colored_label(Color32::RED, error);
+            }
+            if let Some(success) = &self.success_message {
+                ui.colored_label(Color32::GREEN, success);
+            }
+        });
     }
 }
 

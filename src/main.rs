@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 // METGen - The Synthesized METAR Generator
 // Copyright (C) 2025 FiendishDrWu
 //
@@ -48,7 +50,10 @@ fn main() -> eframe::Result<()> {
         viewport: ViewportBuilder::default()
             .with_inner_size([800.0, 600.0])
             .with_min_inner_size([640.0, 480.0])
-            .with_title("METGen - Synthesized METAR Generator"),
+            .with_title("METGen - Synthesized METAR Generator")
+            .with_app_id("metgen"),
+        follow_system_theme: true,
+        default_theme: eframe::Theme::Dark,
         ..Default::default()
     };
 

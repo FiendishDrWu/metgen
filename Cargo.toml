@@ -8,7 +8,10 @@ description = "A METAR generator for flight simulators using real-world weather 
 repository = "https://github.com/FiendishDrWu/metgen"
 readme = "README.md"
 keywords = ["metar", "msfs", "flightsim", "aviation", "xplane"]
-categories = ["command-line-utilities", "simulation"]
+categories = ["gui", "simulation"]
+
+[target.'cfg(windows)'.dependencies]
+windows = "0.54.0"
 
 [dependencies]
 reqwest = { version = "0.12.12", features = ["blocking", "json"] }
@@ -20,6 +23,7 @@ base64 = "0.22.1"
 chrono = "0.4.39"
 eframe = "0.26.2"
 rfd = "0.14.0"
+image = "0.24.9"
 
 [profile.release]
 opt-level = "z"
@@ -28,3 +32,6 @@ panic = "abort"
 
 [build-dependencies]
 winres = "0.1"
+
+[package.metadata.windows]
+subsystem = "windows"

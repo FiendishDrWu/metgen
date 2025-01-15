@@ -8,7 +8,7 @@ METGen is a Rust-based utility that generates synthetic METARs (Meteorological T
 - Uses real-time weather data from various weather APIs
 - Converts airport locations to lat/long coordinates using NOAA APIs
 - Produces accurate METAR strings based on JSON weather data
-- Clean and efficient command-line interface
+- Custom GUI interface
 - Supports both standard OpenWeather API and OneCall API
 - Includes a comprehensive airport database to fill holes in NOAA data
 - Handles multiple input methods: ICAO codes, coordinates, or location names
@@ -89,7 +89,6 @@ Input methods:
 - Config file is automatically created on first run
 - API keys are stored encrypted
 - Units can be changed anytime
-- External airports.csv can be updated if needed
 
 ## License
 

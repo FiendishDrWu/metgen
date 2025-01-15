@@ -157,7 +157,7 @@ pub fn delete_user_airport(icao: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn encrypt_key(key: &str) -> String {
+pub fn encrypt_key(key: &str) -> String {
     base64::encode(key)
 }
 

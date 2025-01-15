@@ -19,6 +19,13 @@ const BORDER_GREY: Color32 = Color32::from_gray(64);
 const GENERATE_BUTTON_COLOR: Color32 = Color32::from_rgb(0, 255, 0);
 const GENERATE_BUTTON_TEXT: Color32 = Color32::BLACK;
 
+#[derive(Default, PartialEq, Clone, Copy)]
+enum Units {
+    #[default]
+    Metric,
+    Imperial,
+}
+
 pub struct MetGenApp {
     input_icao: String,
     input_lat: String,
@@ -30,6 +37,7 @@ pub struct MetGenApp {
     config: Option<Value>,
     selected_api: ApiType,
     selected_tab: Tab,
+    selected_units: Units,
     existing_metar: Option<String>,  // Store existing METAR when found
 }
 
@@ -46,6 +54,7 @@ impl Default for MetGenApp {
             config: None,
             selected_api: ApiType::default(),
             selected_tab: Tab::default(),
+            selected_units: Units::default(),
             existing_metar: None,
         }
     }
@@ -87,8 +96,19 @@ impl MetGenApp {
         style.visuals.panel_fill = PANEL_BACKGROUND;
         cc.egui_ctx.set_style(style);
         
+        // Initialize selected_units from config
+        let selected_units = if let Some(units) = config.get("units").and_then(|u| u.as_str()) {
+            match units {
+                "imperial" => Units::Imperial,
+                _ => Units::Metric,
+            }
+        } else {
+            Units::default()
+        };
+        
         Self {
             config: Some(config),
+            selected_units,
             ..Default::default()
         }
     }
@@ -223,6 +243,15 @@ impl eframe::App for MetGenApp {
                                         ui.vertical(|ui| {
                                             ui.heading(RichText::new("Generated METAR").color(MAGENTA_GLOW));
                                             ui.label(RichText::new(&self.generated_metar).color(TEXT_COLOR).size(16.0));
+                                            
+                                            // Add warning statement
+                                            ui.add_space(10.0);
+                                            ui.horizontal(|ui| {
+                                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                    ui.label(RichText::new("Not for aviation purposes").color(MAGENTA_GLOW).size(14.0));
+                                                    ui.label(RichText::new("For simulator use only.").color(CYAN_GLOW).size(14.0));
+                                                });
+                                            });
                                             
                                             // Only show save button for custom location METARs
                                             if !self.input_icao.is_empty() && 
@@ -530,7 +559,126 @@ impl MetGenApp {
             
             ui.heading(RichText::new("Configuration").color(CYAN_GLOW));
             ui.add_space(15.0);
-            ui.label("Configuration options coming soon...");
+            
+            // API Keys Configuration
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.heading(RichText::new("API Keys").color(MAGENTA_GLOW));
+                    ui.add_space(10.0);
+                    
+                    if let Some(config) = &mut self.config {
+                        // Standard API Key
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_min_width(100.0);  // Reduced from 120.0
+                                ui.label(RichText::new("Standard API Key:").size(14.0));
+                            });
+                            let mut api_key = config["decrypted_api_key"].as_str().unwrap_or("").to_string();
+                            let api_edit = egui::TextEdit::singleline(&mut api_key)
+                                .desired_width(600.0)
+                                .hint_text("32 characters required");
+                            if ui.add(api_edit).changed() {
+                                // Limit to 32 characters
+                                if api_key.len() > 32 {
+                                    api_key.truncate(32);
+                                }
+                                // Show error if less than 32 characters
+                                if api_key.len() < 32 {
+                                    self.error_message = Some(format!("Standard API Key must be exactly 32 characters (currently {})", api_key.len()));
+                                } else {
+                                    self.error_message = None;
+                                }
+                                // Read current config to preserve all data
+                                if let Ok(contents) = std::fs::read_to_string("config.json") {
+                                    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&contents) {
+                                        json["api_key"] = serde_json::Value::String(crate::config::encrypt_key(&api_key));
+                                        if let Ok(config_str) = serde_json::to_string_pretty(&json) {
+                                            if let Err(e) = std::fs::write("config.json", config_str) {
+                                                self.error_message = Some(format!("Failed to save configuration: {}", e));
+                                            }
+                                        }
+                                        config["decrypted_api_key"] = serde_json::Value::String(api_key);
+                                    }
+                                }
+                            }
+                        });
+                        
+                        // OneCall API Key
+                        ui.horizontal(|ui| {
+                            ui.add_space(40.0);
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                ui.set_min_width(100.0);  // Reduced from 120.0
+                                ui.label(RichText::new("OneCall API Key:").size(14.0));
+                            });
+                            let mut one_call_key = config["decrypted_one_call_api_key"].as_str().unwrap_or("").to_string();
+                            let one_call_edit = egui::TextEdit::singleline(&mut one_call_key)
+                                .desired_width(600.0)
+                                .hint_text("32 characters required");
+                            if ui.add(one_call_edit).changed() {
+                                // Limit to 32 characters
+                                if one_call_key.len() > 32 {
+                                    one_call_key.truncate(32);
+                                }
+                                // Show error if less than 32 characters
+                                if one_call_key.len() < 32 {
+                                    self.error_message = Some(format!("OneCall API Key must be exactly 32 characters (currently {})", one_call_key.len()));
+                                } else {
+                                    self.error_message = None;
+                                }
+                                // Read current config to preserve all data
+                                if let Ok(contents) = std::fs::read_to_string("config.json") {
+                                    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&contents) {
+                                        json["one_call_api_key"] = serde_json::Value::String(crate::config::encrypt_key(&one_call_key));
+                                        if let Ok(config_str) = serde_json::to_string_pretty(&json) {
+                                            if let Err(e) = std::fs::write("config.json", config_str) {
+                                                self.error_message = Some(format!("Failed to save configuration: {}", e));
+                                            }
+                                        }
+                                        config["decrypted_one_call_api_key"] = serde_json::Value::String(one_call_key);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+            
+            ui.add_space(15.0);
+            
+            // Units Selection
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.heading(RichText::new("Units").color(MAGENTA_GLOW));
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(40.0);  // Same left margin as other elements
+                        let prev_units = self.selected_units;
+                        ui.selectable_value(&mut self.selected_units, Units::Metric, "Metric");
+                        ui.add_space(20.0);
+                        ui.selectable_value(&mut self.selected_units, Units::Imperial, "Imperial");
+                        
+                        // If units changed, update config.json
+                        if prev_units != self.selected_units {
+                            if let Ok(contents) = std::fs::read_to_string("config.json") {
+                                if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&contents) {
+                                    // Update only the units
+                                    json["units"] = serde_json::Value::String(match self.selected_units {
+                                        Units::Metric => "metric",
+                                        Units::Imperial => "imperial",
+                                    }.to_string());
+                                    // Write back to file
+                                    if let Ok(config_str) = serde_json::to_string_pretty(&json) {
+                                        if let Err(e) = std::fs::write("config.json", config_str) {
+                                            self.error_message = Some(format!("Failed to save configuration: {}", e));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                });
+            });
         });
     }
 
@@ -626,36 +774,33 @@ impl MetGenApp {
                 ApiType::OneCall => config["decrypted_one_call_api_key"].as_str(),
             };
 
-            let units = config["units"].as_str().unwrap_or("metric");
+            if let Some(key) = api_key {
+                let units = match self.selected_units {
+                    Units::Metric => "metric",
+                    Units::Imperial => "imperial",
+                };
 
-            if let Some(api_key) = api_key {
-                match self.selected_api {
+                let result = match self.selected_api {
                     ApiType::Standard => {
-                        if let Some(metar) = metar_generator::generate_metar(
-                            &self.input_icao,
-                            lat,
-                            lon,
-                            api_key,
-                            units,
-                        ) {
-                            self.generated_metar = metar;
-                            self.success_message = Some("METAR generated successfully".to_string());
-                        } else {
-                            self.error_message = Some("Failed to generate METAR".to_string());
-                        }
+                        metar_generator::generate_metar(&self.input_icao, lat, lon, key, units)
                     },
                     ApiType::OneCall => {
-                        if let Some(weather_data) = one_call_metar::fetch_weather_data(lat, lon, api_key) {
+                        if let Some(weather_data) = one_call_metar::fetch_weather_data(lat, lon, key) {
                             let parsed = one_call_metar::parse_weather_data(&weather_data);
-                            self.generated_metar = one_call_metar::generate_metar(
-                                &self.input_icao,
-                                &parsed,
-                                units,
-                            );
-                            self.success_message = Some("METAR generated successfully".to_string());
+                            Some(one_call_metar::generate_metar(&self.input_icao, &parsed, units))
                         } else {
-                            self.error_message = Some("Failed to fetch weather data".to_string());
+                            None
                         }
+                    },
+                };
+
+                match result {
+                    Some(metar) => {
+                        self.generated_metar = metar;
+                        self.success_message = Some("METAR generated successfully".to_string());
+                    },
+                    None => {
+                        self.error_message = Some("Failed to generate METAR".to_string());
                     }
                 }
             } else {
@@ -782,6 +927,15 @@ impl MetGenApp {
                                 ui.vertical(|ui| {
                                     ui.heading(RichText::new("Generated METAR").color(MAGENTA_GLOW));
                                     ui.label(RichText::new(&self.generated_metar).color(TEXT_COLOR).size(16.0));
+                                    
+                                    // Add warning statement
+                                    ui.add_space(10.0);
+                                    ui.horizontal(|ui| {
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            ui.label(RichText::new("Not for aviation purposes").color(MAGENTA_GLOW).size(14.0));
+                                            ui.label(RichText::new("For simulator use only.").color(CYAN_GLOW).size(14.0));
+                                        });
+                                    });
                                     
                                     // Only show save button for custom location METARs
                                     if !self.input_icao.is_empty() && 

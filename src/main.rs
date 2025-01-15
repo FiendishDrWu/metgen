@@ -23,10 +23,13 @@ mod metar_generator;
 mod one_call_metar;
 mod gui;
 
-use config::load_config;
-use gui::MetGenApp;
+use config::{load_config, ensure_config_exists};
+use gui::{MetGenApp, Tab};
 
 fn main() -> eframe::Result<()> {
+    // Create default config if it doesn't exist
+    let is_first_run = ensure_config_exists().unwrap_or(false);
+
     // Load config, including decrypted keys
     let (config_json, decrypted_api_key, decrypted_one_call_api_key) = load_config();
 
@@ -39,6 +42,7 @@ fn main() -> eframe::Result<()> {
     let mut config = config_json;
     config["decrypted_api_key"] = serde_json::Value::String(decrypted_api_key);
     config["decrypted_one_call_api_key"] = serde_json::Value::String(decrypted_one_call_api_key);
+    config["is_first_run"] = serde_json::Value::Bool(is_first_run);
 
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()

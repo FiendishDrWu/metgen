@@ -167,3 +167,20 @@ fn decrypt_key(encrypted: &str) -> String {
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .unwrap_or_default()
 }
+
+pub fn ensure_config_exists() -> io::Result<bool> {
+    if !std::path::Path::new(CONFIG_FILE).exists() {
+        let default_config = json!({
+            "api_key": "",
+            "one_call_api_key": "",
+            "units": "metric",
+            "user_airports": []
+        });
+        
+        let config_str = serde_json::to_string_pretty(&default_config)?;
+        fs::write(CONFIG_FILE, config_str)?;
+        Ok(true) // Return true to indicate this was first run
+    } else {
+        Ok(false) // Return false to indicate config already existed
+    }
+}

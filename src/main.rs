@@ -26,7 +26,7 @@ mod one_call_metar;
 mod gui;
 
 use config::{load_config, ensure_config_exists};
-use gui::{MetGenApp, Tab};
+use gui::{MetGenApp};
 
 fn main() -> eframe::Result<()> {
     // Create default config if it doesn't exist

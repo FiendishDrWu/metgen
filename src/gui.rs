@@ -15,7 +15,6 @@ const ACCENT_COLOR: Color32 = Color32::from_rgb(128, 0, 255);
 const PANEL_BACKGROUND: Color32 = Color32::from_rgb(10, 10, 15);
 const TAB_ACTIVE: Color32 = Color32::from_rgb(5, 5, 10);
 const TAB_INACTIVE: Color32 = Color32::from_rgb(5, 5, 10);
-const BORDER_GREY: Color32 = Color32::from_gray(64);
 const GENERATE_BUTTON_COLOR: Color32 = Color32::from_rgb(0, 255, 0);
 const GENERATE_BUTTON_TEXT: Color32 = Color32::BLACK;
 
@@ -95,7 +94,7 @@ enum ApiType {
 impl MetGenApp {
     pub fn new(cc: &eframe::CreationContext<'_>, config: Value) -> Self {
         // Set up custom fonts and theme
-        let mut fonts = egui::FontDefinitions::default();
+        let fonts = egui::FontDefinitions::default();
         // TODO: Add custom retro font if desired
         
         cc.egui_ctx.set_fonts(fonts);
@@ -883,177 +882,6 @@ impl MetGenApp {
         } else {
             self.error_message = Some("Configuration not loaded".to_string());
         }
-    }
-
-    fn generate_and_save_from_coords(&mut self) {
-        self.error_message = None;
-        self.success_message = None;
-        
-        if self.input_lat.is_empty() || self.input_lon.is_empty() {
-            self.error_message = Some("Please enter both latitude and longitude".to_string());
-            return;
-        }
-
-        let lat = match self.input_lat.parse::<f64>() {
-            Ok(lat) => lat,
-            Err(_) => {
-                self.error_message = Some("Invalid latitude format".to_string());
-                return;
-            }
-        };
-
-        let lon = match self.input_lon.parse::<f64>() {
-            Ok(lon) => lon,
-            Err(_) => {
-                self.error_message = Some("Invalid longitude format".to_string());
-                return;
-            }
-        };
-
-        if let Some((lat, lon)) = input_handler::validate_lat_lon(lat, lon) {
-            // Generate METAR first
-            self.generate_metar_with_coordinates(lat, lon);
-            
-            // Then save the airport
-            if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
-                self.error_message = Some(format!("Failed to save airport: {}", e));
-            } else {
-                self.success_message = Some(format!("Generated METAR and saved airport {}", self.input_icao));
-            }
-        } else {
-            self.error_message = Some("Invalid latitude/longitude values".to_string());
-        }
-    }
-
-    fn generate_and_save_from_location(&mut self) {
-        self.error_message = None;
-        self.success_message = None;
-        
-        if self.input_location.is_empty() {
-            self.error_message = Some("Please enter a location".to_string());
-            return;
-        }
-
-        if let Some(config) = &self.config {
-            if let Some((lat, lon)) = input_handler::resolve_freeform_input(
-                &self.input_location,
-                config["decrypted_api_key"].as_str().unwrap(),
-            ) {
-                // Generate METAR first
-                self.generate_metar_with_coordinates(lat, lon);
-                
-                // Then save the airport
-                if let Err(e) = save_user_airport(self.input_icao.clone(), lat, lon) {
-                    self.error_message = Some(format!("Failed to save airport: {}", e));
-                } else {
-                    self.success_message = Some(format!("Generated METAR and saved airport {}", self.input_icao));
-                }
-            } else {
-                self.error_message = Some(format!("Could not resolve location: {}", self.input_location));
-            }
-        }
-    }
-
-    fn draw_output(&mut self, ui: &mut egui::Ui) {
-        ui.vertical(|ui| {
-            // Display Results
-            if let Some(existing) = &self.existing_metar.clone() {
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        egui::Frame::none()
-                            .inner_margin(egui::style::Margin::same(8.0))
-                            .stroke(Stroke::new(1.0, CYAN_GLOW))
-                            .show(ui, |ui| {
-                                ui.vertical(|ui| {
-                                    ui.heading(RichText::new("Existing METAR Found").color(MAGENTA_GLOW));
-                                    ui.label(RichText::new(existing).color(TEXT_COLOR).size(16.0));
-                                    
-                                    ui.add_space(10.0);
-                                    ui.horizontal(|ui| {
-                                        let existing = existing.clone();
-                                        if ui.button("Use Existing METAR").clicked() {
-                                            self.generated_metar = existing;
-                                            self.existing_metar = None;
-                                            self.success_message = Some("Using existing METAR from NOAA".to_string());
-                                            self.clear_input_fields();
-                                        }
-                                        ui.add_space(20.0);
-                                        if ui.add(egui::Button::new(RichText::new("Generate Synthesized METAR")
-                                            .color(GENERATE_BUTTON_TEXT))
-                                            .fill(GENERATE_BUTTON_COLOR))
-                                            .clicked() {
-                                            if let Some((lat, lon)) = input_handler::resolve_icao_to_lat_lon(&self.input_icao) {
-                                                self.generate_metar_with_coordinates(lat, lon);
-                                                self.existing_metar = None;
-                                                self.clear_input_fields();
-                                            }
-                                        }
-                                    });
-                                });
-                            });
-                    });
-                });
-            } else if !self.generated_metar.is_empty() {
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        egui::Frame::none()
-                            .inner_margin(egui::style::Margin::same(8.0))
-                            .stroke(Stroke::new(1.0, CYAN_GLOW))
-                            .show(ui, |ui| {
-                                ui.vertical(|ui| {
-                                    ui.heading(RichText::new("Generated METAR").color(MAGENTA_GLOW));
-                                    ui.label(RichText::new(&self.generated_metar).color(TEXT_COLOR).size(16.0));
-                                    
-                                    // Add warning statement
-                                    ui.add_space(10.0);
-                                    ui.horizontal(|ui| {
-                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            ui.label(RichText::new("Not for aviation purposes").color(MAGENTA_GLOW).size(14.0));
-                                            ui.label(RichText::new("For simulator use only.").color(CYAN_GLOW).size(14.0));
-                                        });
-                                    });
-                                    
-                                    // Show save button only for lat/lon or location-based METARs
-                                    match self.last_input_method {
-                                        InputMethod::LatLon | InputMethod::Location => {
-                                            ui.add_space(10.0);
-                                            ui.horizontal(|ui| {
-                                                if ui.button("Save Airport").clicked() {
-                                                    if let Err(e) = save_user_airport(
-                                                        self.saved_icao.clone(),
-                                                        self.saved_lat,
-                                                        self.saved_lon
-                                                    ) {
-                                                        self.error_message = Some(format!("Failed to save airport: {}", e));
-                                                    } else {
-                                                        self.success_message = Some(format!("Saved airport {}", self.saved_icao));
-                                                    }
-                                                }
-                                            });
-                                        },
-                                        _ => {}
-                                    }
-                                });
-                            });
-                    });
-                });
-            }
-            
-            // Error/Success Messages
-            ui.add_space(8.0);
-            if let Some(error) = &self.error_message {
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
-                    ui.add_space(8.0);
-                    ui.colored_label(Color32::RED, RichText::new(error).size(16.0));
-                });
-            }
-            if let Some(success) = &self.success_message {
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
-                    ui.add_space(8.0);
-                    ui.colored_label(Color32::GREEN, RichText::new(success).size(16.0));
-                });
-            }
-        });
     }
 }
 

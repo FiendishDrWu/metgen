@@ -15,11 +15,10 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 use std::fs;
-use std::io::{self, Write};
-use std::path::PathBuf;
+use std::io;
 use serde::{Deserialize, Serialize};
 use serde_json::{self, Value, json};
-use base64;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserAirport {
@@ -50,21 +49,6 @@ pub fn load_config() -> (Value, String, String) {
         }
         Err(_) => (Value::Null, String::new(), String::new())
     }
-}
-
-pub fn save_config(api_key: &str, one_call_api_key: &str, units: &str) -> io::Result<()> {
-    let encrypted_api_key = encrypt_key(api_key);
-    let encrypted_one_call_api_key = encrypt_key(one_call_api_key);
-    
-    let config = serde_json::json!({
-        "api_key": encrypted_api_key,
-        "one_call_api_key": encrypted_one_call_api_key,
-        "units": units
-    });
-    
-    let config_str = serde_json::to_string_pretty(&config)?;
-    fs::write(CONFIG_FILE, config_str)?;
-    Ok(())
 }
 
 pub fn get_user_airports() -> Vec<UserAirport> {
@@ -113,7 +97,7 @@ pub fn save_user_airport(icao: String, lat: f64, lon: f64) -> io::Result<()> {
     };
 
     // Initialize user_airports array if it doesn't exist
-    if !config.get("user_airports").is_some() {
+    if config.get("user_airports").is_none() {
         config["user_airports"] = json!([]);
     }
 
@@ -158,11 +142,11 @@ pub fn delete_user_airport(icao: &str) -> io::Result<()> {
 }
 
 pub fn encrypt_key(key: &str) -> String {
-    base64::encode(key)
+    BASE64.encode(key)
 }
 
 fn decrypt_key(encrypted: &str) -> String {
-    base64::decode(encrypted)
+    BASE64.decode(encrypted)
         .ok()
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .unwrap_or_default()

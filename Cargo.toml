@@ -1,6 +1,6 @@
 [package]
 name = "metgen"
-version = "0.9.4"
+version = "0.9.5"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 authors = ["FiendishDrWu"]
@@ -35,3 +35,24 @@ winres = "0.1"
 
 [package.metadata.windows]
 subsystem = "windows"
+
+[package.metadata.desktop-entry]
+name = "METGen"
+comment = "METAR Generator for Flight Simulators"
+categories = ["Utility", "Science"]
+icon = "icon"
+terminal = false
+type = "Application"
+
+[package.metadata.bundle]
+name = "METGen"
+identifier = "com.fiendishdrwu.metgen"
+icon = ["icon.ico"]
+version = "0.9.4"
+copyright = "Copyright (c) 2025 FiendishDrWu. Licensed under AGPL-3.0"
+category = "Utility"
+short_description = "METAR Generator for Flight Simulators"
+long_description = """
+A METAR generator for flight simulators using real-world weather data. 
+Specifically designed to provide accurately formatted METARs for airfields 
+and airports that don't have real-world METAR reporting capabilities."""

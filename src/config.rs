@@ -1,170 +1,60 @@
-// METGen - The Synthesized METAR Generator
-// Copyright (C) 2025 FiendishDrWu
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU Affero General Public License as published
-// by the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU Affero General Public License for more details.
-//
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+use base64::{engine::general_purpose, Engine};
+use serde::{Serialize, Deserialize};
+use std::{fs, path::PathBuf};
 
-use std::fs;
-use std::io;
-use serde::{Deserialize, Serialize};
-use serde_json::{self, Value, json};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Units { Imperial, Metric }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserAirport {
-    pub icao: String,
-    pub latitude: f64,
-    pub longitude: f64,
+impl Default for Units { fn default() -> Self { Units::Imperial } }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Provider { Standard, OneCall }
+
+impl Default for Provider { fn default() -> Self { Provider::Standard } }
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Config {
+    pub owm_api_key: String,
+    pub units: Units,
+    pub provider: Provider,
 }
 
-const CONFIG_FILE: &str = "config.json";
-
-pub fn load_config() -> (Value, String, String) {
-    match fs::read_to_string(CONFIG_FILE) {
-        Ok(contents) => {
-            match serde_json::from_str(&contents) {
-                Ok(json) => {
-                    let config: Value = json;
-                    let api_key = config["api_key"].as_str().unwrap_or("").to_string();
-                    let one_call_api_key = config["one_call_api_key"].as_str().unwrap_or("").to_string();
-                    
-                    // Decrypt API keys
-                    let decrypted_api_key = decrypt_key(&api_key);
-                    let decrypted_one_call_api_key = decrypt_key(&one_call_api_key);
-                    
-                    (config, decrypted_api_key, decrypted_one_call_api_key)
-                }
-                Err(_) => (Value::Null, String::new(), String::new())
-            }
-        }
-        Err(_) => (Value::Null, String::new(), String::new())
-    }
-}
-
-pub fn get_user_airports() -> Vec<UserAirport> {
-    if let Ok(contents) = fs::read_to_string(CONFIG_FILE) {
-        if let Ok(config) = serde_json::from_str::<Value>(&contents) {
-            if let Some(airports) = config["user_airports"].as_array() {
-                return airports
-                    .iter()
-                    .filter_map(|airport| {
-                        if let (Some(icao), Some(lat), Some(lon)) = (
-                            airport["icao"].as_str(),
-                            airport["latitude"].as_f64(),
-                            airport["longitude"].as_f64(),
-                        ) {
-                            Some(UserAirport {
-                                icao: icao.to_string(),
-                                latitude: lat,
-                                longitude: lon,
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-            }
-        }
-    }
-    Vec::new()
-}
-
-pub fn save_user_airport(icao: String, lat: f64, lon: f64) -> io::Result<()> {
-    let mut config = if let Ok(contents) = fs::read_to_string(CONFIG_FILE) {
-        serde_json::from_str::<Value>(&contents).unwrap_or_else(|_| json!({
-            "api_key": "",
-            "one_call_api_key": "",
-            "units": "metric",
-            "user_airports": []
-        }))
-    } else {
-        json!({
-            "api_key": "",
-            "one_call_api_key": "",
-            "units": "metric",
-            "user_airports": []
-        })
-    };
-
-    // Initialize user_airports array if it doesn't exist
-    if config.get("user_airports").is_none() {
-        config["user_airports"] = json!([]);
-    }
-
-    // Check if airport already exists
-    let should_add = if let Some(airports) = config["user_airports"].as_array() {
-        !airports.iter().any(|a| a["icao"].as_str() == Some(&icao))
-    } else {
-        true
-    };
-
-    if should_add {
-        if let Some(airports) = config["user_airports"].as_array_mut() {
-            airports.push(json!({
-                "icao": icao,
-                "latitude": lat,
-                "longitude": lon
-            }));
-            
-            let config_str = serde_json::to_string_pretty(&config)?;
-            fs::write(CONFIG_FILE, config_str)?;
-        }
-    }
-    
-    Ok(())
-}
-
-pub fn delete_user_airport(icao: &str) -> io::Result<()> {
-    if let Ok(contents) = fs::read_to_string(CONFIG_FILE) {
-        if let Ok(mut config) = serde_json::from_str::<Value>(&contents) {
-            if let Some(airports) = config["user_airports"].as_array_mut() {
-                let len_before = airports.len();
-                airports.retain(|a| a["icao"].as_str() != Some(icao));
-                
-                if airports.len() != len_before {
-                    let config_str = serde_json::to_string_pretty(&config)?;
-                    fs::write(CONFIG_FILE, config_str)?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-pub fn encrypt_key(key: &str) -> String {
-    BASE64.encode(key)
-}
-
-fn decrypt_key(encrypted: &str) -> String {
-    BASE64.decode(encrypted)
+/// Portable config: keep `config.json` next to the executable (same folder as the .exe and airports.csv)
+fn config_path() -> PathBuf {
+    // Prefer the executable's directory; fall back to current working dir if needed.
+    let exe_dir = std::env::current_exe()
         .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .unwrap_or_default()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+    exe_dir.join("config.json")
 }
 
-pub fn ensure_config_exists() -> io::Result<bool> {
-    if !std::path::Path::new(CONFIG_FILE).exists() {
-        let default_config = json!({
-            "api_key": "",
-            "one_call_api_key": "",
-            "units": "metric",
-            "user_airports": []
-        });
-        
-        let config_str = serde_json::to_string_pretty(&default_config)?;
-        fs::write(CONFIG_FILE, config_str)?;
-        Ok(true) // Return true to indicate this was first run
-    } else {
-        Ok(false) // Return false to indicate config already existed
+pub fn load_or_default() -> Config {
+    let path = config_path();
+    if let Ok(s) = fs::read_to_string(&path) {
+        if let Ok(mut cfg) = serde_json::from_str::<Config>(&s) {
+            // Decode if it looks like base64 (very light heuristic); not real encryption.
+            if maybe_base64(&cfg.owm_api_key) {
+                if let Ok(decoded) = general_purpose::STANDARD.decode(cfg.owm_api_key.as_bytes()) {
+                    if let Ok(txt) = String::from_utf8(decoded) { cfg.owm_api_key = txt; }
+                }
+            }
+            return cfg;
+        }
     }
+    Config { owm_api_key: String::new(), units: Units::Imperial, provider: Provider::Standard }
+}
+
+pub fn save(cfg: &Config) -> Result<(), String> {
+    let path = config_path();
+    let mut cfg_encoded = cfg.clone();
+    cfg_encoded.owm_api_key = general_purpose::STANDARD.encode(cfg.owm_api_key.as_bytes());
+    if let Some(parent) = path.parent() { fs::create_dir_all(parent).ok(); }
+    let s = serde_json::to_string_pretty(&cfg_encoded).map_err(|e| e.to_string())?;
+    fs::write(path, s).map_err(|e| e.to_string())
+}
+
+fn maybe_base64(s: &str) -> bool {
+    s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '/' | '=')) && s.len() % 4 == 0
 }

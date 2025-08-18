@@ -1,20 +1,32 @@
 #[cfg(test)]
 mod tests {
+    use metgen::config::Units;
+    use metgen::wx_format::*;
     use pretty_assertions::assert_eq;
-    use metar_maker_gui::wx_format::*;
-    use metar_maker_gui::config::Units;
 
     #[test]
     fn wind_basic() {
-        assert_eq!(format_wind(Some(270.0), Some(3.0/1.94384), None), "27003KT");
-        assert_eq!(format_wind(None, Some(4.0/1.94384), None), "VRB04KT");
-        assert_eq!(format_wind(Some(90.0), Some(7.0/1.94384), Some(14.0/1.94384)), "09007KTG14");
+        assert_eq!(
+            format_wind(Some(270.0), Some(3.0 / 1.94384), None),
+            "27003KT"
+        );
+        assert_eq!(format_wind(None, Some(4.0 / 1.94384), None), "VRB04KT");
+        assert_eq!(
+            format_wind(Some(90.0), Some(7.0 / 1.94384), Some(14.0 / 1.94384)),
+            "09007KTG14"
+        );
     }
 
     #[test]
     fn vis_quarters() {
-        assert_eq!(format_visibility(Some(1609.344), Units::Imperial, &[]), "1SM");
-        assert_eq!(format_visibility(Some(804.0), Units::Imperial, &[]), "1/2SM");
+        assert_eq!(
+            format_visibility(Some(1609.344), Units::Imperial, &[]),
+            "1SM"
+        );
+        assert_eq!(
+            format_visibility(Some(804.0), Units::Imperial, &[]),
+            "1/2SM"
+        );
         assert_eq!(format_visibility(Some(4828.0), Units::Imperial, &[]), "3SM");
     }
 

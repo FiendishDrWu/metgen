@@ -1,6 +1,6 @@
 [package]
-name = "metar_maker_gui"
-version = "0.1.0"
+name = "metgen"
+version = "0.9.6"
 edition = "2021"
 
 [features]

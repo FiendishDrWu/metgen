@@ -1,7 +1,7 @@
 use crate::config::Units;
 use crate::providers::WeatherSample;
 use crate::wx_format::*;
-use chrono::{Timelike, Datelike};
+use chrono::{Datelike, Timelike};
 
 pub fn render_metar(s: &WeatherSample, units: Units, icao_opt: Option<&str>) -> String {
     let icao = icao_opt.unwrap_or("XXXX").to_uppercase();
@@ -16,11 +16,17 @@ pub fn render_metar(s: &WeatherSample, units: Units, icao_opt: Option<&str>) -> 
     let alt = format_pressure(s.pressure_hpa, units);
 
     let mut parts = vec![icao, time, "AUTO".into()];
-    for p in [wind, vis, wx, clouds, temp_dew, alt] { if !p.is_empty() { parts.push(p); } }
+    for p in [wind, vis, wx, clouds, temp_dew, alt] {
+        if !p.is_empty() {
+            parts.push(p);
+        }
+    }
 
     // One Call trend (optional): if we have 1–2 hourly points, generate a compact trend suffix.
     if !s.hourly_next.is_empty() {
-        if let Some(tr) = generate_trend(s, units) { parts.push(tr); }
+        if let Some(tr) = generate_trend(s, units) {
+            parts.push(tr);
+        }
     }
 
     parts.join(" ")
@@ -38,7 +44,9 @@ fn generate_trend(s: &WeatherSample, units: Units) -> Option<String> {
         let delta = (v1 - v0).abs();
         if cross_10k || delta >= 2000.0 {
             let vis = format_visibility(Some(v1), units, &next.wx_codes);
-            if !vis.is_empty() { tokens.push(format!("BECMG {}", vis)); }
+            if !vis.is_empty() {
+                tokens.push(format!("BECMG {}", vis));
+            }
         }
     }
 
@@ -49,7 +57,9 @@ fn generate_trend(s: &WeatherSample, units: Units) -> Option<String> {
             let dd = ((d1 - d0 + 540.0) % 360.0) - 180.0; // shortest angle
             if dd.abs() >= 30.0 || (kt(Some(s1)) - kt(Some(s0))).abs() >= 5 {
                 let w = format_wind(next.wind_dir_deg, next.wind_speed_ms, next.wind_gust_ms);
-                if !w.is_empty() { tokens.push(format!("BECMG {}", w)); }
+                if !w.is_empty() {
+                    tokens.push(format!("BECMG {}", w));
+                }
             }
         }
     }
@@ -57,8 +67,14 @@ fn generate_trend(s: &WeatherSample, units: Units) -> Option<String> {
     // Phenomena onset/cessation — if any difference in codes, mark TEMPO with next codes
     if s.wx_codes != next.wx_codes {
         let w = format_weather_conditions(&next.wx_codes);
-        if !w.is_empty() { tokens.push(format!("TEMPO {}", w)); }
+        if !w.is_empty() {
+            tokens.push(format!("TEMPO {}", w));
+        }
     }
 
-    if tokens.is_empty() { None } else { Some(tokens.join(" ")) }
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens.join(" "))
+    }
 }
